@@ -1,0 +1,171 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  username  String   @unique
+  password  String
+  role      String   @default("user")
+  image     String   @default("")
+  banReason String   @default("")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  submissions Submission[]
+  searchLogs  SearchLog[]
+  comments    Comment[]
+  tags        UserTag[]
+  appeals     Appeal[]
+}
+
+model UserTag {
+  id        String   @id @default(cuid())
+  userId    String
+  text      String
+  color     String   @default("#3b82f6")
+  textColor String   @default("#ffffff")
+  sparkly   Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Scammer {
+  id           String   @id @default(cuid())
+  name         String
+  description  String   @default("")
+  status       String   @default("scam") // "verified", "scam", "not_in_db"
+  searchCount  Int      @default(0)
+  likeCount    Int      @default(0)
+  neutralCount Int      @default(0)
+  dislikeCount Int      @default(0)
+  screenshots  String   @default("[]") // JSON array of URLs
+  scammerType  String   @default("") // "Бот" or "Человек"
+  scamDate     String   @default("") // date string like "10.03.2026"
+  scamAmount   String   @default("") // e.g. "5000"
+  scamCurrency String   @default("") // "рубли", "ton", "stars", "prgram", "gram", or custom
+  proofLink        String   @default("") // proof URL
+  telegramUserId   String   @default("") // Telegram user ID from old DB
+  createdBy        String?
+  createdAt        DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  submissions Submission[]
+  searchLogs  SearchLog[]
+  comments    Comment[]
+  votes       Vote[]
+  nameHistory ScammerNameHistory[]
+  appeals     Appeal[]
+}
+
+model ScammerNameHistory {
+  id        String   @id @default(cuid())
+  scammerId String
+  oldName   String
+  newName   String
+  createdAt DateTime @default(now())
+
+  scammer Scammer @relation(fields: [scammerId], references: [id], onDelete: Cascade)
+
+  @@index([scammerId])
+}
+
+model Submission {
+  id             String   @id @default(cuid())
+  scammerName    String
+  scammerData    String   @default("")
+  telegramUserId String   @default("") // Telegram ID of the scammer
+  scammerStatus  String   @default("scam") // desired status for the scammer
+  screenshots    String   @default("[]") // JSON array of URLs
+  scamAmount     String   @default("") // amount scammed
+  scamCurrency   String   @default("") // currency type
+  status         String   @default("pending") // "pending", "approved", "rejected", "revision"
+  revisionReason String   @default("")
+  userId         String
+  scammerId      String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user    User     @relation(fields: [userId], references: [id])
+  scammer Scammer? @relation(fields: [scammerId], references: [id])
+}
+
+model SearchLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  scammerId String?
+  query     String
+  createdAt DateTime @default(now())
+
+  user    User?    @relation(fields: [userId], references: [id])
+  scammer Scammer? @relation(fields: [scammerId], references: [id])
+}
+
+model Comment {
+  id        String   @id @default(cuid())
+  content   String
+  scammerId String
+  userId    String
+  approved  Boolean  @default(false)
+  hidden    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user    User    @relation(fields: [userId], references: [id])
+  scammer Scammer @relation(fields: [scammerId], references: [id])
+}
+
+model Vote {
+  id        String   @id @default(cuid())
+  scammerId String
+  voteType  String   // "like", "neutral", or "dislike"
+  voterId   String   // "user:{userId}" or "ip:{ip}"
+  createdAt DateTime @default(now())
+
+  scammer Scammer @relation(fields: [scammerId], references: [id])
+
+  @@unique([scammerId, voterId])
+  @@index([scammerId])
+}
+
+model ScammerStatus {
+  id        String   @id @default(cuid())
+  key       String   @unique // "scam", "verified", "suspicious", etc.
+  label     String   // Display text: "СКАМ", "Проверен", etc.
+  color     String   @default("#ef4444") // badge background color (hex)
+  textColor String   @default("#ffffff") // badge text color (hex)
+  sortOrder Int      @default(0)
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+model Appeal {
+  id          String   @id @default(cuid())
+  scammerId   String
+  userId      String?
+  proofLink   String   @default("")
+  description String   @default("")
+  status      String   @default("pending") // "pending", "accepted", "rejected", "banned"
+  createdAt   DateTime @default(now())
+
+  scammer Scammer @relation(fields: [scammerId], references: [id], onDelete: Cascade)
+  user    User?    @relation(fields: [userId], references: [id])
+
+  @@index([scammerId])
+  @@index([status])
+}
+
+model Complaint {
+  id        String   @id @default(cuid())
+  name      String   // Name that was searched
+  reason    String   @default("") // Optional complaint description
+  status    String   @default("pending") // "pending", "resolved", "dismissed"
+  createdAt DateTime @default(now())
+}
