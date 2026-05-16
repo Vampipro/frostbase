@@ -39,6 +39,7 @@ import {
   FileText,
   Clock,
   Scale,
+  PlusCircle,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -585,48 +586,11 @@ function FloatingScammers() {
 
 // ==================== COMPLAINT CARD ====================
 function ComplaintCard({ name }: { name: string }) {
-  const [reason, setReason] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [sent, setSent] = useState(false)
-
-  const handleSubmit = async () => {
-    if (sent) return
-    setLoading(true)
-    try {
-      const res = await fetch('/api/complaints', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, reason: reason.trim() }),
-      })
-      const data = await res.json()
-      if (!res.ok) {
-        toast.error(data.error)
-        return
-      }
-      toast.success('Жалоба отправлена! Админ рассмотрит её')
-      setSent(true)
-    } catch {
-      toast.error('Ошибка отправки')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  if (sent) {
-    return (
-      <div className="glass rounded-2xl p-4 max-w-sm mx-auto">
-        <div className="text-center">
-          <p className="text-sm font-medium text-muted-foreground">
-            Жалоба на <span className="text-foreground font-semibold">{name}</span> отправлена
-          </p>
-        </div>
-      </div>
-    )
-  }
+  const { openCreateModalWith } = useAppStore()
 
   return (
-    <div className="glass rounded-2xl p-4 max-w-sm mx-auto">
-      <div className="flex items-center gap-3 mb-3">
+    <div className="glass rounded-2xl p-5 max-w-sm mx-auto">
+      <div className="flex items-center gap-3 mb-4">
         <Avatar className="h-10 w-10 shrink-0">
           <AvatarFallback className="bg-gradient-to-br from-gray-400 to-gray-500 text-white font-semibold">
             {name.charAt(0).toUpperCase()}
@@ -637,26 +601,14 @@ function ComplaintCard({ name }: { name: string }) {
           <p className="text-xs text-muted-foreground">Не найден в базе</p>
         </div>
       </div>
-      <div className="mb-3">
-        <textarea
-          placeholder="Опишите причину жалобы (необязательно)..."
-          value={reason}
-          onChange={(e) => setReason(e.target.value)}
-          className="w-full h-20 rounded-xl bg-secondary border border-border p-3 text-sm resize-none focus:outline-none focus:border-blue-500/50 placeholder:text-muted-foreground"
-          maxLength={500}
-        />
-      </div>
       <Button
-        onClick={handleSubmit}
-        disabled={loading}
-        className="w-full h-10 rounded-xl bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white font-semibold text-sm"
+        onClick={() => openCreateModalWith(name)}
+        className="w-full h-12 rounded-xl bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-700 hover:to-cyan-600 text-white font-semibold"
       >
-        {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : (
-          <span className="flex items-center gap-2">
-            <AlertTriangle className="w-4 h-4" />
-            Пожаловаться
-          </span>
-        )}
+        <span className="flex items-center gap-2">
+          <PlusCircle className="w-5 h-5" />
+          Сообщить о скаме
+        </span>
       </Button>
     </div>
   )
@@ -739,7 +691,7 @@ function SearchView() {
           <div className="absolute -inset-0.5 bg-gradient-to-r from-blue-600 to-cyan-500 rounded-2xl opacity-30 group-hover:opacity-50 group-focus-within:opacity-60 blur transition-all duration-500 group-hover:shadow-lg group-hover:shadow-blue-500/20" />
           <div className="relative flex flex-col gap-2 p-1.5 transition-transform duration-300 group-hover:scale-[1.01]">
             <Input
-              placeholder="Введите тг юзернейм/сылку на сайт/сылку на нфт..."
+              placeholder="Имя скамера..."
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
@@ -956,6 +908,7 @@ function Top10View() {
 
 // ==================== CREATE MODAL ====================
 function CreateModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { createModalInitialName, createModalInitialData } = useAppStore()
   const [name, setName] = useState('')
   const [data, setData] = useState('')
   const [telegramUserId, setTelegramUserId] = useState('')
@@ -965,6 +918,19 @@ function CreateModal({ open, onClose }: { open: boolean; onClose: () => void }) 
   const [loading, setLoading] = useState(false)
   const [statusTypes, setStatusTypes] = useState<any[]>([])
   const [selectedStatus, setSelectedStatus] = useState('scam')
+  const filledRef = useRef(false)
+
+  // Pre-fill name and data when opened from complaint
+  useEffect(() => {
+    if (open && createModalInitialName && !filledRef.current) {
+      setName(createModalInitialName)
+      setData(createModalInitialData)
+      filledRef.current = true
+    }
+    if (!open) {
+      filledRef.current = false
+    }
+  }, [open, createModalInitialName, createModalInitialData])
 
   useEffect(() => {
     fetch('/api/status-types').then(r => r.json()).then(d => {
@@ -978,10 +944,14 @@ function CreateModal({ open, onClose }: { open: boolean; onClose: () => void }) 
       return
     }
 
+    const urls = screenshotText.split('\n').map(l => l.trim()).filter(l => l.length > 0).slice(0, 3)
+    if (urls.length === 0) {
+      toast.error('Добавьте хотя бы одно доказательство (ссылка на скриншот)')
+      return
+    }
+
     setLoading(true)
     try {
-      const urls = screenshotText.split('\n').map(l => l.trim()).filter(l => l.length > 0).slice(0, 3)
-
       const res = await fetch('/api/submit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1144,18 +1114,8 @@ function CreateModal({ open, onClose }: { open: boolean; onClose: () => void }) 
               )}
 
               <div>
-                <label className="text-sm text-muted-foreground mb-1.5 block">Данные / описание</label>
-                <Input
-                  placeholder="Телефон, Telegram, детали..."
-                  value={data}
-                  onChange={(e) => setData(e.target.value)}
-                  className="h-12 rounded-xl bg-secondary border-border"
-                />
-              </div>
-
-              <div>
                 <label className="text-sm text-muted-foreground mb-1.5 block">
-                  Ссылки на доказательства (по одной на строку, макс. 3)
+                  Ссылки на доказательства (по одной на строку, макс. 3) *
                 </label>
                 <textarea
                   placeholder="https://t.me/..."
@@ -1171,9 +1131,19 @@ function CreateModal({ open, onClose }: { open: boolean; onClose: () => void }) 
                 </p>
               </div>
 
+              <div>
+                <label className="text-sm text-muted-foreground mb-1.5 block">Данные / описание</label>
+                <Input
+                  placeholder="Телефон, Telegram, детали..."
+                  value={data}
+                  onChange={(e) => setData(e.target.value)}
+                  className="h-12 rounded-xl bg-secondary border-border"
+                />
+              </div>
+
               <Button
                 onClick={handleSubmit}
-                disabled={loading || !name.trim()}
+                disabled={loading || !name.trim() || !screenshotText.trim()}
                 className="w-full h-12 rounded-xl bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-700 hover:to-cyan-600 text-white font-semibold"
               >
                 {loading ? (
@@ -2435,7 +2405,7 @@ function BottomNav() {
   const tabs = [
     { id: 'search' as const, icon: Search, label: 'Поиск' },
     { id: 'top10' as const, icon: TrendingUp, label: 'Топ-10' },
-    ...(isLogged ? [{ id: 'plus' as const, icon: Plus, label: '' }] : []),
+    ...[{ id: 'plus' as const, icon: Plus, label: '' }],
     { id: 'stats' as const, icon: BarChart3, label: 'Стат.' },
     { id: 'profile' as const, icon: User, label: 'Профиль' },
   ]
@@ -2537,7 +2507,7 @@ export default function Home() {
       </main>
       <BottomNav />
       <AnimatePresence>
-        {isCreateModalOpen && session?.user && <CreateModal key="create-modal" open={isCreateModalOpen} onClose={() => setCreateModalOpen(false)} />}
+        {isCreateModalOpen && <CreateModal key="create-modal" open={isCreateModalOpen} onClose={() => setCreateModalOpen(false)} />}
       </AnimatePresence>
       <AnimatePresence>
         {selectedScammer && <ScamerDetailModal key="detail-modal" scammer={selectedScammer} onClose={() => setSelectedScammer(null)} />}
