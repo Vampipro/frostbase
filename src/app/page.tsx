@@ -691,7 +691,7 @@ function SearchView() {
           <div className="absolute -inset-0.5 bg-gradient-to-r from-blue-600 to-cyan-500 rounded-2xl opacity-30 group-hover:opacity-50 group-focus-within:opacity-60 blur transition-all duration-500 group-hover:shadow-lg group-hover:shadow-blue-500/20" />
           <div className="relative flex flex-col gap-2 p-1.5 transition-transform duration-300 group-hover:scale-[1.01]">
             <Input
-              placeholder="Имя скамера..."
+              placeholder="Введите юз/сылку на нфт/телефон/и прочее..."
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
