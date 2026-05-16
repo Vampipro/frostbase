@@ -11,6 +11,9 @@ interface AppState {
   setSelectedScammer: (scammer: any | null) => void
   isCreateModalOpen: boolean
   setCreateModalOpen: (open: boolean) => void
+  createModalInitialName: string
+  createModalInitialData: string
+  openCreateModalWith: (name: string, data?: string) => void
   searchQuery: string
   setSearchQuery: (q: string) => void
   drunkMode: boolean
@@ -23,7 +26,10 @@ export const useAppStore = create<AppState>((set) => ({
   selectedScammer: null,
   setSelectedScammer: (scammer) => set({ selectedScammer: scammer }),
   isCreateModalOpen: false,
-  setCreateModalOpen: (open) => set({ isCreateModalOpen: open }),
+  setCreateModalOpen: (open) => set({ isCreateModalOpen: open, createModalInitialName: '', createModalInitialData: '' }),
+  createModalInitialName: '',
+  createModalInitialData: '',
+  openCreateModalWith: (name, data = '') => set({ isCreateModalOpen: true, createModalInitialName: name, createModalInitialData: data }),
   searchQuery: '',
   setSearchQuery: (q) => set({ searchQuery: q }),
   drunkMode: false,
