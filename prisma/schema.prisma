@@ -31,6 +31,7 @@ model UserTag {
   color     String   @default("#3b82f6")
   textColor String   @default("#ffffff")
   sparkly   Boolean  @default(false)
+  hidden    Boolean  @default(false)
   createdAt DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -89,12 +90,13 @@ model Submission {
   scamCurrency   String   @default("") // currency type
   status         String   @default("pending") // "pending", "approved", "rejected", "revision"
   revisionReason String   @default("")
-  userId         String
+  userId         String?
+  guestIp        String   @default("") // IP address for guest submissions
   scammerId      String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  user    User     @relation(fields: [userId], references: [id])
+  user    User?    @relation(fields: [userId], references: [id])
   scammer Scammer? @relation(fields: [scammerId], references: [id])
 }
 
@@ -143,6 +145,7 @@ model ScammerStatus {
   textColor String   @default("#ffffff") // badge text color (hex)
   sortOrder Int      @default(0)
   isDefault Boolean  @default(false)
+  hidden    Boolean  @default(false)
   createdAt DateTime @default(now())
 }
 
