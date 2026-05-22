@@ -49,35 +49,7 @@ export async function GET(req: NextRequest) {
       take: 20,
     })
 
-    // Increment searchCount for ALL users (guests included)
-    if (scammers.length > 0) {
-      await Promise.all(
-        scammers.map((scammer) =>
-          db.scammer.update({
-            where: { id: scammer.id },
-            data: { searchCount: { increment: 1 } },
-          })
-        )
-      )
-
-      // Create SearchLog entries with scammerId linked
-      const logQuery = [query, telegramId].filter(Boolean).join(' | ')
-      await db.searchLog.createMany({
-        data: scammers.map((scammer) => ({
-          scammerId: scammer.id,
-          query: logQuery,
-          ...(session?.user
-            ? {
-                userId:
-                  (session.user as { userId?: string; id?: string }).userId ||
-                  (session.user as { userId?: string; id?: string }).id ||
-                  null,
-              }
-            : {}),
-        })),
-      })
-    }
-
+    // DON'T increment searchCount here — it's done when user clicks on a card
     // Count submissions per scammer
     const scammerIds = scammers.map((s) => s.id)
     let submissionCounts: Map<string, number> = new Map()
