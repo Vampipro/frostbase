@@ -3,12 +3,13 @@ import { db } from '@/lib/db'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 
-// GET /api/status-types — public, returns all statuses sorted by sortOrder
+// GET /api/status-types — public, returns all NON-HIDDEN statuses sorted by sortOrder
 export async function GET() {
   try {
     const statuses = await db.$queryRawUnsafe(
-      `SELECT id, key, label, color, "textColor", "sortOrder", "isDefault"
+      `SELECT id, key, label, color, "textColor", "sortOrder", "isDefault", hidden
        FROM "ScammerStatus"
+       WHERE hidden = false
        ORDER BY "sortOrder" ASC`
     ) as any[]
 
@@ -92,7 +93,7 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: 'Доступ запрещен' }, { status: 403 })
     }
 
-    const { id, key, label, color, textColor, sortOrder } = await req.json()
+    const { id, key, label, color, textColor, sortOrder, hidden } = await req.json()
 
     if (!id) {
       return NextResponse.json({ error: 'Не указан ID' }, { status: 400 })
@@ -119,6 +120,10 @@ export async function PUT(req: NextRequest) {
     if (sortOrder !== undefined && typeof sortOrder === 'number') {
       updates.push(`"sortOrder" = $${paramIndex++}`)
       params.push(Math.max(0, sortOrder))
+    }
+    if (hidden !== undefined && typeof hidden === 'boolean') {
+      updates.push(`hidden = $${paramIndex++}`)
+      params.push(hidden)
     }
 
     if (updates.length === 0) {
