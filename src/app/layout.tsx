@@ -40,7 +40,7 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground`}
       >
         <div className="fixed inset-0 z-0">
-          <div className="absolute inset-0 bg-cover bg-center bg-fixed" style={{ backgroundImage: "url('/bg.jpg')" }} />
+          <div className="absolute inset-0 bg-cover bg-center bg-fixed" style="background-image:url('/bg.jpg');opacity: 0.1;/* background: #000000a1; */"/>
           <div className="absolute inset-0 backdrop-blur-sm" />
         </div>
         <div className="gradient-bg" />
