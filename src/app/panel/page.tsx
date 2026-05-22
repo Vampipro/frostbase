@@ -71,7 +71,7 @@ interface Stats {
   dbChangesToday: number
 }
 
-type PanelTab = 'dashboard' | 'scammers' | 'users' | 'submissions' | 'comments' | 'complaints' | 'appeals' | 'stats' | 'add' | 'statuses' | 'export'
+type PanelTab = 'dashboard' | 'scammers' | 'users' | 'submissions' | 'comments' | 'appeals' | 'stats' | 'add' | 'statuses' | 'export'
 
 // ==================== PING PONG GAME ====================
 function PingPongGame() {
@@ -465,9 +465,7 @@ export default function PanelPage() {
   const [comments, setComments] = useState<any[]>([])
   const [commentsLoading, setCommentsLoading] = useState(false)
 
-  // Complaints
-  const [complaints, setComplaints] = useState<any[]>([])
-  const [complaintsLoading, setComplaintsLoading] = useState(false)
+
 
   // Appeals management
   const [appeals, setAppeals] = useState<any[]>([])
@@ -496,6 +494,14 @@ export default function PanelPage() {
   const [newTagColor, setNewTagColor] = useState('#3b82f6')
   const [newTagTextColor, setNewTagTextColor] = useState('#ffffff')
   const [newTagSparkly, setNewTagSparkly] = useState(false)
+
+  // Hidden tags
+  const [showHiddenTags, setShowHiddenTags] = useState(false)
+  const [hiddenTags, setHiddenTags] = useState<any[]>([])
+  const [hiddenTagsPage, setHiddenTagsPage] = useState(1)
+  const [hiddenTagsTotal, setHiddenTagsTotal] = useState(0)
+  const [hiddenTagsSearch, setHiddenTagsSearch] = useState('')
+  const [hiddenTagsLoading, setHiddenTagsLoading] = useState(false)
 
   // Revision
   const [revisionSub, setRevisionSub] = useState<Submission | null>(null)
@@ -587,8 +593,9 @@ export default function PanelPage() {
   }
 
   // Load status types on mount (needed for forms everywhere, not just statuses tab)
+  // Admin gets ALL statuses including hidden
   useEffect(() => {
-    fetch('/api/status-types').then(r => r.json()).then(d => {
+    fetch('/api/status-types/admin').then(r => r.json()).then(d => {
       if (d.statuses) setStatusTypes(d.statuses)
     }).catch(() => {})
   }, [])
@@ -616,7 +623,7 @@ export default function PanelPage() {
       setNewStatusKey('')
       setNewStatusColor('#6b7280')
       setNewStatusTextColor('#ffffff')
-      const r2 = await fetch('/api/status-types')
+      const r2 = await fetch('/api/status-types/admin')
       const d2 = await r2.json()
       if (d2.statuses) setStatusTypes(d2.statuses)
     } catch { toast.error('Ошибка') }
@@ -629,7 +636,7 @@ export default function PanelPage() {
       const data = await res.json()
       if (!res.ok) { toast.error(data.error); return }
       toast.success('Тип удален')
-      const r2 = await fetch('/api/status-types')
+      const r2 = await fetch('/api/status-types/admin')
       const d2 = await r2.json()
       if (d2.statuses) setStatusTypes(d2.statuses)
     } catch { toast.error('Ошибка') }
@@ -659,7 +666,26 @@ export default function PanelPage() {
       if (!res.ok) { toast.error(data.error); return }
       toast.success('Тип обновлен')
       setEditingStatusId(null)
-      const r2 = await fetch('/api/status-types')
+      const r2 = await fetch('/api/status-types/admin')
+      const d2 = await r2.json()
+      if (d2.statuses) setStatusTypes(d2.statuses)
+    } catch { toast.error('Ошибка') }
+  }
+
+  const handleToggleHidden = async (st: any) => {
+    try {
+      const res = await fetch('/api/status-types', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: st.id,
+          hidden: !st.hidden,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) { toast.error(data.error); return }
+      toast.success(st.hidden ? 'Статус показан' : 'Статус скрыт')
+      const r2 = await fetch('/api/status-types/admin')
       const d2 = await r2.json()
       if (d2.statuses) setStatusTypes(d2.statuses)
     } catch { toast.error('Ошибка') }
@@ -698,16 +724,7 @@ export default function PanelPage() {
       .finally(() => setCommentsLoading(false))
   }, [tab, isAdminChecked])
 
-  // Load complaints when tab is active
-  useEffect(() => {
-    if (tab !== 'complaints' || !isAdminChecked) return
-    setComplaintsLoading(true)
-    fetch('/api/panel/complaints')
-      .then(r => r.json())
-      .then(d => setComplaints(d.results || []))
-      .catch(() => toast.error('Ошибка загрузки жалоб'))
-      .finally(() => setComplaintsLoading(false))
-  }, [tab, isAdminChecked])
+
 
   // Load appeals when tab is active
   const loadAppeals = useCallback(async (page: number, status: string) => {
@@ -953,30 +970,6 @@ export default function PanelPage() {
     } catch { toast.error('Ошибка') }
   }
 
-  const handleComplaintAction = async (id: string, action: string) => {
-    try {
-      const res = await fetch('/api/panel/complaints', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, status: action }),
-      })
-      const data = await res.json()
-      if (!res.ok) { toast.error(data.error); return }
-      toast.success(data.message)
-      fetch('/api/panel/complaints').then(r => r.json()).then(d => setComplaints(d.results || []))
-    } catch { toast.error('Ошибка') }
-  }
-
-  const handleDeleteComplaint = async (id: string) => {
-    try {
-      const res = await fetch(`/api/panel/complaints?id=${id}`, { method: 'DELETE' })
-      const data = await res.json()
-      if (!res.ok) { toast.error(data.error); return }
-      toast.success(data.message)
-      fetch('/api/panel/complaints').then(r => r.json()).then(d => setComplaints(d.results || []))
-    } catch { toast.error('Ошибка') }
-  }
-
   const handleDeleteSubmission = async (id: string) => {
     if (!confirm('Удалить эту заявку?')) return
     try {
@@ -1059,6 +1052,53 @@ export default function PanelPage() {
     } catch {}
   }
 
+  const handleHideTag = async (tagId: string) => {
+    if (!tagsModalUser) return
+    try {
+      await fetch(`/api/panel/users/${tagsModalUser.id}/tags`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tagId, hidden: true }),
+      })
+      setUserTags(prev => prev.filter(t => t.id !== tagId))
+      toast.success('Тег скрыт')
+    } catch {
+      toast.error('Ошибка')
+    }
+  }
+
+  const loadHiddenTags = async (page: number, search: string) => {
+    setHiddenTagsLoading(true)
+    try {
+      const params = new URLSearchParams({ page: String(page), limit: '20' })
+      if (search) params.set('search', search)
+      const res = await fetch(`/api/panel/hidden-tags?${params}`)
+      const data = await res.json()
+      setHiddenTags(data.results || [])
+      setHiddenTagsTotal(data.total || 0)
+      setHiddenTagsPage(data.page || 1)
+    } catch {
+      toast.error('Ошибка загрузки')
+    } finally {
+      setHiddenTagsLoading(false)
+    }
+  }
+
+  const handleUnhideTag = async (tagId: string, userId: string) => {
+    try {
+      await fetch('/api/panel/hidden-tags', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tagId, hidden: false }),
+      })
+      setHiddenTags(prev => prev.filter(t => t.id !== tagId))
+      setHiddenTagsTotal(prev => prev - 1)
+      toast.success('Тег показан')
+    } catch {
+      toast.error('Ошибка')
+    }
+  }
+
   const handleDeleteUser = async (userId: string, username: string) => {
     if (!confirm('Удалить пользователя ' + username + '? Все его данные будут удалены безвозвратно.')) return
     if (!confirm('Точно удалить ' + username + '? Это действие необратимо.')) return
@@ -1138,7 +1178,6 @@ export default function PanelPage() {
               { id: 'users' as const, icon: Users, label: 'Юзеры' },
               { id: 'submissions' as const, icon: FileText, label: 'Заявки' },
               { id: 'comments' as const, icon: MessageSquare, label: 'Комментарии' },
-              { id: 'complaints' as const, icon: AlertTriangle, label: 'Жалобы' },
               { id: 'appeals' as const, icon: Scale, label: 'Апелляции' },
               { id: 'stats' as const, icon: TrendingUp, label: 'Статистика' },
               { id: 'add' as const, icon: Plus, label: 'Добавить' },
@@ -1165,6 +1204,13 @@ export default function PanelPage() {
           </nav>
 
           <div className="space-y-2 pt-4 border-t border-green-500/10">
+            <button
+              onClick={() => { setShowHiddenTags(true); loadHiddenTags(1, '') }}
+              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-mono text-sm text-yellow-400 hover:text-yellow-300 transition-colors"
+            >
+              <EyeOff className="w-4 h-4" />
+              Скрытые теги
+            </button>
             <button
               onClick={() => router.push('/')}
               className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-mono text-sm text-green-600 hover:text-green-400 transition-colors"
@@ -1193,6 +1239,9 @@ export default function PanelPage() {
               <span className="font-mono font-bold text-green-400">ADMIN</span>
             </div>
             <div className="flex items-center gap-2">
+              <button onClick={() => { setShowHiddenTags(true); loadHiddenTags(1, '') }} className="p-2 rounded-lg hover:bg-yellow-500/10 text-yellow-400" title="Скрытые теги">
+                <EyeOff className="w-4 h-4" />
+              </button>
               <button onClick={() => router.push('/')} className="p-2 rounded-lg hover:bg-green-500/10">
                 <ArrowLeft className="w-4 h-4" />
               </button>
@@ -1242,7 +1291,6 @@ export default function PanelPage() {
                     { id: 'users' as const, icon: Users, label: 'Юзеры' },
                     { id: 'submissions' as const, icon: FileText, label: 'Заявки' },
                     { id: 'comments' as const, icon: MessageSquare, label: 'Комментарии' },
-                    { id: 'complaints' as const, icon: AlertTriangle, label: 'Жалобы' },
                     { id: 'appeals' as const, icon: Scale, label: 'Апелляции' },
                     { id: 'stats' as const, icon: TrendingUp, label: 'Статистика' },
                     { id: 'add' as const, icon: Plus, label: 'Добавить' },
@@ -1778,7 +1826,11 @@ export default function PanelPage() {
                                   )}
                                 </div>
                                 <p className="text-xs text-green-600 font-mono">
-                                  от {sub.user?.username || 'неизвестно'} | {new Date(sub.createdAt).toLocaleDateString('ru-RU')}
+                                  {sub.isGuest ? (
+                                    <>от <span className="text-yellow-400">Гость</span> | IP: {sub.guestIp || '?'} | {new Date(sub.createdAt).toLocaleDateString('ru-RU')}</>
+                                  ) : (
+                                    <>от {sub.user?.username || 'неизвестно'} | {new Date(sub.createdAt).toLocaleDateString('ru-RU')}</>
+                                  )}
                                   {sub.telegramUserId && ` | Telegram ID: ${sub.telegramUserId}`}
                                   {sub.scamAmount && ` | ${sub.scamAmount} ${sub.scamCurrency || ''}`}
                                 </p>
@@ -1846,7 +1898,26 @@ export default function PanelPage() {
                             )}
 
                             {(sub.status === 'approved' || sub.status === 'rejected' || sub.status === 'revision') && (
-                              <div className="flex justify-end">
+                              <div className="flex justify-end gap-2">
+                                {sub.isGuest && sub.guestIp && (
+                                  <Button
+                                    size="sm"
+                                    onClick={async () => {
+                                      if (!confirm(`Забанить IP ${sub.guestIp}?`)) return
+                                      try {
+                                        await fetch('/api/panel/ban-ip', {
+                                          method: 'POST',
+                                          headers: { 'Content-Type': 'application/json' },
+                                          body: JSON.stringify({ ip: sub.guestIp }),
+                                        })
+                                        toast.success(`IP ${sub.guestIp} заблокирован`)
+                                      } catch { toast.error('Ошибка') }
+                                    }}
+                                    className="h-7 bg-orange-600/20 hover:bg-orange-600/30 text-orange-400 font-mono text-[10px] rounded-lg px-2"
+                                  >
+                                    Забанить IP
+                                  </Button>
+                                )}
                                 <Button
                                   size="sm"
                                   onClick={() => handleDeleteSubmission(sub.id)}
@@ -1953,98 +2024,6 @@ export default function PanelPage() {
                                 size="sm"
                                 onClick={() => { if (confirm('Удалить комментарий навсегда?')) handleDeleteComment(c.id) }}
                                 className="h-7 bg-red-600 hover:bg-red-700 text-white font-mono text-[10px] rounded-lg"
-                              >
-                                <Trash2 className="w-3 h-3 mr-1" />
-                                Удалить
-                              </Button>
-                            </div>
-                          </div>
-                        </motion.div>
-                      ))}
-                    </div>
-                  )}
-                </motion.div>
-              )}
-
-              {tab === 'complaints' && (
-                <motion.div key="complaints" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                  <div className="mb-6">
-                    <h2 className="text-2xl font-bold font-mono text-green-300">{'>'} Жалобы</h2>
-                    <p className="text-sm text-green-600 font-mono mt-1">{'// '}Жалобы без регистрации ({complaints.length} записей)</p>
-                  </div>
-
-                  {complaintsLoading ? (
-                    <div className="flex items-center justify-center py-10">
-                      <Loader2 className="w-6 h-6 animate-spin text-green-500" />
-                    </div>
-                  ) : complaints.length === 0 ? (
-                    <div className="glass rounded-xl p-8 border border-green-500/10 text-center">
-                      <p className="font-mono text-green-600">Нет жалоб.</p>
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      {complaints.map((c: any, i: number) => (
-                        <motion.div
-                          key={c.id}
-                          initial={{ opacity: 0, y: 10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ delay: i * 0.03 }}
-                          className={`glass rounded-xl p-4 border ${c.status === 'pending' ? 'border-orange-500/20' : 'border-green-500/10'}`}
-                        >
-                          <div className="flex flex-col gap-2">
-                            <div className="flex items-center justify-between">
-                              <div>
-                                <p className="font-mono font-semibold">{c.name}</p>
-                                <p className="text-xs text-green-600 font-mono">{new Date(c.createdAt).toLocaleDateString('ru-RU')}</p>
-                              </div>
-                              {c.status === 'pending' ? (
-                                <span className="text-[10px] px-2 py-0 rounded-full bg-orange-500/20 text-orange-400 border border-orange-500/30 font-mono">Ожидает</span>
-                              ) : c.status === 'resolved' ? (
-                                <span className="text-[10px] px-2 py-0 rounded-full bg-green-500/20 text-green-400 border border-green-500/30 font-mono">Решена</span>
-                              ) : (
-                                <span className="text-[10px] px-2 py-0 rounded-full bg-gray-500/20 text-gray-400 border border-gray-500/30 font-mono">Отклонена</span>
-                              )}
-                            </div>
-                            {c.reason && (
-                              <p className="text-sm text-green-500/80 font-mono bg-green-500/5 rounded-lg p-2">{c.reason}</p>
-                            )}
-                            <div className="flex gap-2 flex-wrap justify-end">
-                              {c.status === 'pending' && (
-                                <>
-                                  <Button
-                                    size="sm"
-                                    onClick={() => {
-                                      setNewName(c.name)
-                                      setNewDesc(c.reason || '')
-                                      setTab('add')
-                                    }}
-                                    className="h-7 bg-blue-600 hover:bg-blue-700 text-white font-mono text-[10px] rounded-lg"
-                                  >
-                                    <Database className="w-3 h-3 mr-1" />
-                                    Записать
-                                  </Button>
-                                  <Button
-                                    size="sm"
-                                    onClick={() => handleComplaintAction(c.id, 'resolved')}
-                                    className="h-7 bg-green-600 hover:bg-green-700 text-white font-mono text-[10px] rounded-lg"
-                                  >
-                                    <CheckCircle className="w-3 h-3 mr-1" />
-                                    Решена
-                                  </Button>
-                                  <Button
-                                    size="sm"
-                                    onClick={() => handleComplaintAction(c.id, 'dismissed')}
-                                    className="h-7 bg-gray-600 hover:bg-gray-700 text-white font-mono text-[10px] rounded-lg"
-                                  >
-                                    <XCircle className="w-3 h-3 mr-1" />
-                                    Отклонить
-                                  </Button>
-                                </>
-                              )}
-                              <Button
-                                size="sm"
-                                onClick={() => handleDeleteComplaint(c.id)}
-                                className="h-7 bg-red-600/20 hover:bg-red-600/30 text-red-400 font-mono text-[10px] rounded-lg"
                               >
                                 <Trash2 className="w-3 h-3 mr-1" />
                                 Удалить
@@ -2416,15 +2395,28 @@ export default function PanelPage() {
                                   backgroundColor: st.color + '33',
                                   color: st.textColor,
                                   borderColor: st.color + '55',
+                                  opacity: st.hidden ? 0.5 : 1,
                                 }}
                               >
                                 {st.label}
                               </span>
                               <span className="text-xs text-green-600 font-mono">{st.key}</span>
                               {st.isDefault && <span className="text-[10px] text-muted-foreground">по умолч.</span>}
+                              {st.hidden && <span className="text-[10px] text-yellow-500 font-mono">скрыт</span>}
                             </div>
                             <div className="flex items-center gap-2">
                               <div className="w-4 h-4 rounded-full border border-white/20" style={{ backgroundColor: st.color }} />
+                              <button
+                                onClick={() => handleToggleHidden(st)}
+                                className="p-1 rounded hover:bg-yellow-500/20 transition-colors"
+                                title={st.hidden ? 'Показать' : 'Скрыть'}
+                              >
+                                {st.hidden ? (
+                                  <EyeOff className="w-3.5 h-3.5 text-yellow-500" />
+                                ) : (
+                                  <Eye className="w-3.5 h-3.5 text-green-400" />
+                                )}
+                              </button>
                               <button
                                 onClick={() => handleEditStatus(st)}
                                 className="p-1 rounded hover:bg-green-500/20 transition-colors"
@@ -2891,12 +2883,21 @@ export default function PanelPage() {
                           <div className="w-4 h-4 rounded" style={{ backgroundColor: tag.textColor }} title="Цвет текста" />
                         </div>
                       </div>
-                      <button
-                        onClick={() => handleDeleteTag(tag.id)}
-                        className="p-1 rounded hover:bg-red-500/10 text-red-400 hover:text-red-300 transition-colors"
-                      >
-                        <Trash2 className="w-3 h-3" />
-                      </button>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => handleHideTag(tag.id)}
+                          className="p-1 rounded hover:bg-yellow-500/10 text-yellow-400 hover:text-yellow-300 transition-colors"
+                          title="Скрыть тег"
+                        >
+                          <EyeOff className="w-3 h-3" />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteTag(tag.id)}
+                          className="p-1 rounded hover:bg-red-500/10 text-red-400 hover:text-red-300 transition-colors"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -2975,6 +2976,115 @@ export default function PanelPage() {
         onClose={function closeHist() { setNameHistoryScammer(null) }}
         onRollback={function afterRollback() { loadScammers(scammerPage, scammerSearch) }}
       />
+
+      {/* Hidden Tags Modal */}
+      <AnimatePresence>
+        {showHiddenTags && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4"
+            onClick={() => setShowHiddenTags(false)}
+          >
+            <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="relative z-10 w-full max-w-lg glass rounded-2xl p-6 border border-yellow-500/20 max-h-[85vh] flex flex-col"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-mono font-bold text-yellow-300">Скрытые теги ({hiddenTagsTotal})</h3>
+                <button onClick={() => setShowHiddenTags(false)} className="p-1 rounded hover:bg-yellow-500/10">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Search */}
+              <div className="mb-4">
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="Поиск по тегу или юзернейму..."
+                    value={hiddenTagsSearch}
+                    onChange={(e) => setHiddenTagsSearch(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { loadHiddenTags(1, hiddenTagsSearch) } }}
+                    className="h-9 rounded-lg bg-black/30 border-yellow-500/20 text-sm font-mono"
+                  />
+                  <Button onClick={() => loadHiddenTags(1, hiddenTagsSearch)} size="sm" className="h-9 px-3 rounded-lg bg-yellow-500/20 text-yellow-300 hover:bg-yellow-500/30 font-mono text-xs">
+                    Найти
+                  </Button>
+                </div>
+              </div>
+
+              {/* List */}
+              <div className="flex-1 overflow-y-auto space-y-2 min-h-0">
+                {hiddenTagsLoading ? (
+                  <div className="flex items-center justify-center py-10">
+                    <Loader2 className="w-5 h-5 animate-spin text-yellow-400" />
+                  </div>
+                ) : hiddenTags.length === 0 ? (
+                  <div className="text-center py-10">
+                    <p className="text-yellow-600 font-mono text-sm">Скрытых тегов нет</p>
+                  </div>
+                ) : (
+                  hiddenTags.map(tag => (
+                    <div key={tag.id} className="flex items-center justify-between glass rounded-lg px-3 py-2">
+                      <div className="flex items-center gap-2 min-w-0 flex-1">
+                        <span
+                          className="text-[10px] px-2 py-0.5 rounded-full font-medium shrink-0"
+                          style={{
+                            backgroundColor: tag.color,
+                            color: tag.textColor,
+                            boxShadow: tag.sparkly ? `0 0 8px ${tag.color}80` : 'none',
+                          }}
+                        >
+                          {tag.sparkly && <span className="mr-0.5">✨</span>}
+                          {tag.text}
+                        </span>
+                        <span className="text-[10px] text-muted-foreground font-mono truncate">
+                          @{tag.user?.username || '?'}
+                        </span>
+                      </div>
+                      <button
+                        onClick={() => handleUnhideTag(tag.id, tag.userId)}
+                        className="p-1 rounded hover:bg-green-500/10 text-green-400 hover:text-green-300 transition-colors shrink-0 ml-2"
+                        title="Показать тег"
+                      >
+                        <Eye className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              {/* Pagination */}
+              {!hiddenTagsLoading && hiddenTagsTotal > 20 && (
+                <div className="flex items-center justify-center gap-2 mt-4 pt-3 border-t border-yellow-500/10">
+                  <button
+                    onClick={() => loadHiddenTags(hiddenTagsPage - 1, hiddenTagsSearch)}
+                    disabled={hiddenTagsPage <= 1}
+                    className="p-1.5 rounded hover:bg-yellow-500/10 disabled:opacity-30 transition-colors"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  <span className="text-xs font-mono text-muted-foreground">
+                    {hiddenTagsPage} / {Math.ceil(hiddenTagsTotal / 20)}
+                  </span>
+                  <button
+                    onClick={() => loadHiddenTags(hiddenTagsPage + 1, hiddenTagsSearch)}
+                    disabled={hiddenTagsPage >= Math.ceil(hiddenTagsTotal / 20)}
+                    className="p-1.5 rounded hover:bg-yellow-500/10 disabled:opacity-30 transition-colors"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }
