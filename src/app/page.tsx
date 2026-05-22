@@ -561,6 +561,7 @@ function FloatingScammers() {
         .stars-layer {
           position: absolute;
           inset: 0;
+          opacity: 0.1;
           background-image:
             radial-gradient(1px 1px at 10% 20%, rgba(255,255,255,0.15) 0%, transparent 100%),
             radial-gradient(1px 1px at 30% 60%, rgba(255,255,255,0.1) 0%, transparent 100%),
