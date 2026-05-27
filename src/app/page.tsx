@@ -622,9 +622,27 @@ function SearchView() {
   const [results, setResults] = useState<ScammerResult[]>([])
   const [searched, setSearched] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [sixSevenMode, setSixSevenMode] = useState(false)
 
   const handleSearch = useCallback(async () => {
     if (!query.trim() && !telegramId.trim()) return
+
+    // Easter egg: 67 in both fields
+    if (String(query).trim() === '67' && String(telegramId).trim() === '67') {
+      console.log('Easter egg activated!')
+      setSearched(true)
+      setResults([])
+      setSixSevenMode(true)
+      setTimeout(() => {
+        if (typeof window !== 'undefined' && window.speechSynthesis) {
+          const u = new SpeechSynthesisUtterance('six seven')
+          u.rate = 0.8
+          window.speechSynthesis.speak(u)
+        }
+      }, 300)
+      return
+    }
+    setSixSevenMode(false)
 
     setLoading(true)
     try {
@@ -691,7 +709,7 @@ function SearchView() {
           <div className="absolute -inset-0.5 bg-gradient-to-r from-blue-600 to-cyan-500 rounded-2xl opacity-30 group-hover:opacity-50 group-focus-within:opacity-60 blur transition-all duration-500 group-hover:shadow-lg group-hover:shadow-blue-500/20" />
           <div className="relative flex flex-col gap-2 p-1.5 transition-transform duration-300 group-hover:scale-[1.01]">
             <Input
-              placeholder="Имя скамера..."
+              placeholder="Юзернейм, айди, ссылка на сайт или нфт.."
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
@@ -728,7 +746,24 @@ function SearchView() {
             exit={{ opacity: 0 }}
             className="space-y-3"
           >
-            {results.length > 0 ? (
+            {sixSevenMode ? (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-background pointer-events-none select-none overflow-hidden">
+                <div className="grid grid-cols-8 sm:grid-cols-12 md:grid-cols-16 gap-1 p-2">
+                  {Array.from({ length: 100 }).map((_, i) => (
+                    <motion.span
+                      key={i}
+                      initial={{ opacity: 0, scale: 0, rotate: Math.random() * 360 }}
+                      animate={{ opacity: [0, 1, 0.6, 1], scale: 1, rotate: 0 }}
+                      transition={{ delay: i * 0.03, duration: 0.6, ease: 'easeOut' }}
+                      className="text-2xl sm:text-4xl md:text-6xl font-black text-foreground"
+                      style={{ color: ['#3b82f6', '#06b6d4', '#8b5cf6', '#22c55e', '#f59e0b', '#ef4444'][i % 6] }}
+                    >
+                      67
+                    </motion.span>
+                  ))}
+                </div>
+              </div>
+            ) : results.length > 0 ? (
               results.map((scammer, i) => (
                 <motion.div
                   key={scammer.id}
