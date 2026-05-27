@@ -31,6 +31,23 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Заполните имя или ID' }, { status: 400 })
     }
 
+    // Track search press (scammerId=null means it's a button press, not a card click)
+    const searchQuery = `${query || ''}${telegramId ? (query ? ' | ' : '') + telegramId : ''}`
+    db.searchLog.create({
+      data: {
+        query: searchQuery,
+        scammerId: null,
+        ...(session?.user
+          ? {
+              userId:
+                (session.user as { userId?: string; id?: string }).userId ||
+                (session.user as { userId?: string; id?: string }).id ||
+                null,
+            }
+          : {}),
+      },
+    }).catch(() => {}) // Fire and forget, don't block the search
+
     // Build where clause: search by name AND/OR telegramUserId
     // Strip @ from query for fuzzy matching
     const cleanQuery = (query || '').replace(/^@/i, '')
