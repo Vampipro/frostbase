@@ -48,6 +48,23 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import UserNameHistoryModal from '@/components/UserNameHistoryModal'
 import UserTagsBadge from '@/components/UserTagsBadge'
 
+// ==================== VIEW DEDUP ====================
+const recentlyViewed = new Map<string, number>()
+function recordView(scammerId: string) {
+  const now = Date.now()
+  if (recentlyViewed.has(scammerId) && now - recentlyViewed.get(scammerId)! < 5000) {
+    return // Skip duplicate within 5 seconds
+  }
+  recentlyViewed.set(scammerId, now)
+  fetch(`/api/scammers/${scammerId}/view`, { method: 'POST' }).catch(() => {})
+  // Cleanup old entries
+  if (recentlyViewed.size > 100) {
+    for (const [k, v] of recentlyViewed) {
+      if (now - v > 10000) recentlyViewed.delete(k)
+    }
+  }
+}
+
 // ==================== TYPES ====================
 interface ScammerResult {
   id: string
@@ -496,7 +513,7 @@ function FloatingScammers() {
                   style={{ width: '180px' }}
                 >
                   <div
-                    onClick={() => { setSelectedScammer(scammer); fetch(`/api/scammers/${scammer.id}/view`, { method: 'POST' }).catch(() => {}) }}
+                    onClick={() => { setSelectedScammer(scammer); recordView(scammer.id) }}
                     className={`cursor-pointer rounded-2xl backdrop-blur-md border p-4 h-full flex flex-col transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:scale-[1.02]`}
                     style={{ ...statusBgStyle(scammer.statusColor), boxShadow: scammer.statusColor ? `0 0 20px ${scammer.statusColor}08` : undefined }}
                   >
@@ -623,6 +640,49 @@ function SearchView() {
   const [searched, setSearched] = useState(false)
   const [loading, setLoading] = useState(false)
   const [sixSevenMode, setSixSevenMode] = useState(false)
+  // Tag search state (status types: СКАМ, ПРОВЕРЕН, etc.)
+  const [allTags, setAllTags] = useState<{ key: string; text: string; count: number; color: string; textColor: string }[]>([])
+  const [activeTagKey, setActiveTagKey] = useState<string | null>(null)
+  const [activeTagText, setActiveTagText] = useState<string | null>(null)
+  const [activeTagColor, setActiveTagColor] = useState('#3b82f6')
+  const [tagSearchResults, setTagSearchResults] = useState<ScammerResult[] | null>(null)
+  const [tagSearchTotal, setTagSearchTotal] = useState(0)
+  const [tagSearchTotalPages, setTagSearchTotalPages] = useState(0)
+  const [tagSearchPage, setTagSearchPage] = useState(1)
+
+  // Load all visible tags
+  useEffect(() => {
+    fetch('/api/tags')
+      .then(r => r.json())
+      .then(d => setAllTags(d.tags || []))
+      .catch(() => {})
+  }, [])
+
+  const handleTagSearch = useCallback(async (key: string, text: string, page = 1) => {
+    setActiveTagKey(key)
+    setActiveTagText(text)
+    const tagObj = allTags.find(t => t.key === key)
+    if (tagObj) setActiveTagColor(tagObj.color)
+    setTagSearchPage(page)
+    try {
+      const res = await fetch(`/api/scammers/by-tag?tag=${encodeURIComponent(key)}&page=${page}&limit=20`)
+      const data = await res.json()
+      setTagSearchResults(data.results || [])
+      setTagSearchTotal(data.total || 0)
+      setTagSearchTotalPages(data.totalPages || 0)
+    } catch {
+      toast.error('Ошибка поиска по тегу')
+    }
+  }, [allTags])
+
+  const clearTagSearch = useCallback(() => {
+    setActiveTagKey(null)
+    setActiveTagText(null)
+    setTagSearchResults(null)
+    setTagSearchTotal(0)
+    setTagSearchTotalPages(0)
+    setTagSearchPage(1)
+  }, [])
 
   const handleSearch = useCallback(async () => {
     if (!query.trim() && !telegramId.trim()) return
@@ -643,6 +703,7 @@ function SearchView() {
       return
     }
     setSixSevenMode(false)
+    clearTagSearch()
 
     setLoading(true)
     try {
@@ -736,7 +797,113 @@ function SearchView() {
       </div>
 
       {/* Floating scammers when not searching */}
-      {!searched && <FloatingScammers />}
+      {!searched && !tagSearchResults && <FloatingScammers />}
+
+      {/* Tag search bar — status types like СКАМ, ПРОВЕРЕН, etc. */}
+      {!searched && (
+        <div className="mt-4 px-2">
+          <p className="text-xs text-muted-foreground mb-2 font-medium">Поиск по статусам</p>
+          {allTags.length > 0 ? (
+            <div className="flex flex-wrap gap-1.5">
+              {allTags.map((tag) => (
+                <button
+                  key={tag.key}
+                  onClick={() => handleTagSearch(tag.key, tag.text)}
+                  className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition-all duration-200 hover:scale-105 hover:shadow-md ${
+                    activeTagKey === tag.key ? 'ring-2 ring-offset-1 ring-offset-background' : ''
+                  }`}
+                  style={{
+                    backgroundColor: tag.color,
+                    color: tag.textColor,
+                    ringColor: activeTagKey === tag.key ? tag.color : undefined,
+                  }}
+                >
+                  {tag.text} ({tag.count})
+                </button>
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground/50">Нет статусов</p>
+          )}
+        </div>
+      )}
+
+      {/* Tag search results */}
+      {tagSearchResults && (
+        <div className="mt-4 space-y-2">
+          <div className="flex items-center justify-between px-1">
+            <p className="text-xs text-muted-foreground font-medium">
+              Статус: <span style={{ color: activeTagColor }}>{activeTagText}</span> — {tagSearchTotal} результатов
+            </p>
+            <button
+              onClick={clearTagSearch}
+              className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Сбросить
+            </button>
+          </div>
+
+          {tagSearchResults.map((scammer, i) => (
+            <motion.div
+              key={scammer.id}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: i * 0.05 }}
+            >
+              <div
+                onClick={() => { setSelectedScammer(scammer); recordView(scammer.id) }}
+                className="rounded-2xl border p-4 cursor-pointer hover:-translate-y-0.5 hover:shadow-lg transition-all duration-300"
+                style={statusBgStyle(scammer.statusColor)}
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3 min-w-0 flex-1">
+                    <Avatar className="h-10 w-10 shrink-0">
+                      <AvatarFallback className="bg-gradient-to-br from-blue-500 to-cyan-500 text-white font-semibold">
+                        {scammer.name.charAt(0).toUpperCase()}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="min-w-0">
+                      <p className="font-semibold truncate">{scammer.name}</p>
+                      <p className="text-xs text-muted-foreground">{scammer.searchCount} просмотров</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0 ml-2">
+                    <StatusBadge status={scammer.statusLabel || scammer.status} color={scammer.statusColor} textColor={scammer.statusTextColor} />
+                    <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          ))}
+
+          {/* Tag pagination */}
+          {tagSearchTotalPages > 1 && (
+            <div className="flex items-center justify-center gap-2 pt-2">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={tagSearchPage <= 1}
+                onClick={() => handleTagSearch(activeTagKey!, activeTagText!, tagSearchPage - 1)}
+                className="rounded-xl"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </Button>
+              <span className="text-xs text-muted-foreground">
+                {tagSearchPage} / {tagSearchTotalPages}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={tagSearchPage >= tagSearchTotalPages}
+                onClick={() => handleTagSearch(activeTagKey!, activeTagText!, tagSearchPage + 1)}
+                className="rounded-xl"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
 
       <AnimatePresence>
         {searched && (
@@ -772,7 +939,7 @@ function SearchView() {
                   transition={{ delay: i * 0.05 }}
                 >
                   <div
-                    onClick={() => { setSelectedScammer(scammer); fetch(`/api/scammers/${scammer.id}/view`, { method: 'POST' }).catch(() => {}) }}
+                    onClick={() => { setSelectedScammer(scammer); recordView(scammer.id) }}
                     className="rounded-2xl border p-4 cursor-pointer hover:-translate-y-0.5 hover:shadow-lg transition-all duration-300"
                     style={statusBgStyle(scammer.statusColor)}
                   >
@@ -894,7 +1061,7 @@ function Top10View() {
               transition={{ delay: i * 0.05 }}
             >
               <div
-                onClick={() => { setSelectedScammer(item); fetch(`/api/scammers/${item.id}/view`, { method: 'POST' }).catch(() => {}) }}
+                onClick={() => { setSelectedScammer(item); recordView(item.id) }}
                 className="rounded-2xl border p-4 cursor-pointer hover:-translate-y-0.5 hover:shadow-lg transition-all duration-300"
                 style={statusBgStyle(item.statusColor)}
               >
@@ -1835,7 +2002,7 @@ function StatsView() {
           { label: 'Всего скамеров', value: stats.totalScammers, icon: Shield, color: 'text-red-500' },
           { label: 'Всего заявок', value: stats.totalSubmissions, icon: FileText, color: 'text-yellow-500' },
           { label: 'Всего юзеров', value: stats.totalUsers, icon: User, color: 'text-blue-500' },
-          { label: 'Всего поисков', value: stats.totalSearches, icon: Search, color: 'text-purple-500' },
+          { label: 'Всего просмотров', value: stats.viewsAll || stats.totalSearches, icon: Eye, color: 'text-purple-500' },
         ].map((s, i) => (
           <motion.div
             key={s.label}
@@ -1853,12 +2020,36 @@ function StatsView() {
         ))}
       </div>
 
+      {/* Absolute searches */}
+      <div className="px-2">
+        <p className="text-xs text-muted-foreground mb-2 font-medium">Абсолютные поиски</p>
+        <div className="grid grid-cols-3 gap-2">
+          {[
+            { label: 'За сегодня', value: stats.absoluteSearchesToday || 0, color: 'text-cyan-500' },
+            { label: 'За 3 дня', value: stats.absoluteSearches3Days || 0, color: 'text-blue-500' },
+            { label: 'За всё время', value: stats.absoluteSearchesAll || 0, color: 'text-purple-500' },
+          ].map((s, i) => (
+            <motion.div
+              key={s.label}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: (i + 4) * 0.05 }}
+              className="glass rounded-xl p-2.5 text-center transition-all duration-300 hover:-translate-y-1 hover:shadow-md hover:scale-[1.05]"
+            >
+              <Search className={`w-3.5 h-3.5 ${s.color} mx-auto mb-0.5`} />
+              <p className="text-base font-bold">{s.value}</p>
+              <p className="text-[10px] text-muted-foreground">{s.label}</p>
+            </motion.div>
+          ))}
+        </div>
+      </div>
+
       {/* Today stats */}
       <div className="px-2">
         <p className="text-xs text-muted-foreground mb-2 font-medium">За сегодня</p>
         <div className="grid grid-cols-3 gap-2">
           {[
-            { label: 'Поисков', value: stats.searchesToday, icon: Search, color: 'text-cyan-500' },
+            { label: 'Просмотров', value: stats.viewsToday || 0, icon: Eye, color: 'text-cyan-500' },
             { label: 'Лайков', value: stats.likesToday, icon: TrendingUp, color: 'text-green-500' },
             { label: 'Новых', value: stats.scammersAddedToday, icon: Database, color: 'text-orange-500' },
           ].map((s, i) => (
@@ -1866,7 +2057,7 @@ function StatsView() {
               key={s.label}
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: (i + 4) * 0.05 }}
+              transition={{ delay: (i + 7) * 0.05 }}
               className="glass rounded-xl p-2.5 text-center transition-all duration-300 hover:-translate-y-1 hover:shadow-md hover:scale-[1.05]"
             >
               <s.icon className={`w-3.5 h-3.5 ${s.color} mx-auto mb-0.5 transition-transform duration-300 group-hover:scale-110`} />
@@ -1897,6 +2088,26 @@ function StatsView() {
           </div>
         </div>
       </div>
+
+      {/* Digit-start stats */}
+      {stats.digitStartCounts && (
+        <div className="px-2">
+          <p className="text-xs text-muted-foreground mb-2 font-medium">Скамеры по первой цифре Telegram ID</p>
+          <div className="grid grid-cols-2 gap-2">
+            {Object.entries(stats.digitStartCounts as Record<string, number>).map(([digit, count], i) => (
+              <motion.div
+                key={digit}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: (i + 10) * 0.03 }}
+                className="glass rounded-xl p-2.5 transition-all duration-300 hover:-translate-y-1 hover:shadow-md"
+              >
+                <p className="text-[11px] text-muted-foreground">У {count} скамеров первая цифра айди — {digit}</p>
+              </motion.div>
+            ))}
+          </div>
+        </div>
+      )}
     </motion.div>
   )
 }
