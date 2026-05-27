@@ -3,17 +3,22 @@ import { db } from '@/lib/db'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 
+function getClientIp(req: NextRequest): string {
+  const forwarded = req.headers.get('x-forwarded-for')
+  if (forwarded) return forwarded.split(',')[0].trim()
+  const realIp = req.headers.get('x-real-ip')
+  if (realIp) return realIp.trim()
+  return 'unknown'
+}
+
 export async function POST(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
-    if (!session?.user) {
-      return NextResponse.json({ error: 'Не авторизован' }, { status: 401 })
-    }
+    const clientIp = getClientIp(req)
 
     const body = await req.json()
     const { scammerName, scammerData, telegramUserId, screenshots, scammerStatus, scamAmount, scamCurrency } = body
 
-    // Manual validation (reliable across Zod versions)
     if (!scammerName || typeof scammerName !== 'string' || scammerName.trim().length < 1 || scammerName.trim().length > 200) {
       return NextResponse.json({ error: 'Имя скамера обязательно (1-200 символов)' }, { status: 400 })
     }
@@ -25,12 +30,11 @@ export async function POST(req: NextRequest) {
       ? screenshots.filter((s: unknown) => typeof s === 'string').slice(0, 3)
       : []
 
-    // Get user ID
-    const sessionUser = session.user as { userId?: string; id?: string }
-    const userId = sessionUser.userId || sessionUser.id
-
-    if (!userId) {
-      return NextResponse.json({ error: 'Ошибка сессии' }, { status: 401 })
+    // Get user ID (null for guests)
+    let userId: string | null = null
+    if (session?.user) {
+      const sessionUser = session.user as { userId?: string; id?: string }
+      userId = sessionUser.userId || sessionUser.id || null
     }
 
     // FIX: Use exact match instead of contains for scammer lookup
@@ -54,6 +58,7 @@ export async function POST(req: NextRequest) {
         scamCurrency: typeof scamCurrency === 'string' ? scamCurrency.slice(0, 50) : '',
         status: 'pending',
         userId,
+        guestIp: clientIp,
         scammerId: existingScammer?.id || null,
       },
     })
