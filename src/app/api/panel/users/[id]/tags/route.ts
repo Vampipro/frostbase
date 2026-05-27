@@ -29,7 +29,7 @@ export async function GET(
     }
 
     const tags = await db.userTag.findMany({
-      where: { userId },
+      where: { userId, hidden: false },
       orderBy: { createdAt: 'desc' },
     })
 
@@ -91,6 +91,45 @@ export async function POST(
     return NextResponse.json({ tag })
   } catch (error) {
     console.error('Panel user tags POST error:', error)
+    return NextResponse.json({ error: 'Ошибка' }, { status: 500 })
+  }
+}
+
+// PATCH: toggle tag hidden (admin only)
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const user = await checkAdmin()
+    if (!user) {
+      return NextResponse.json({ error: 'Доступ запрещен' }, { status: 403 })
+    }
+
+    const { id: userId } = await params
+    const body = await req.json()
+    const { tagId, hidden } = body
+
+    if (!tagId) {
+      return NextResponse.json({ error: 'Не указан ID тега' }, { status: 400 })
+    }
+
+    const tag = await db.userTag.findFirst({
+      where: { id: tagId, userId },
+    })
+
+    if (!tag) {
+      return NextResponse.json({ error: 'Тег не найден' }, { status: 404 })
+    }
+
+    const updated = await db.userTag.update({
+      where: { id: tagId },
+      data: { hidden: typeof hidden === 'boolean' ? hidden : !tag.hidden },
+    })
+
+    return NextResponse.json({ tag: updated })
+  } catch (error) {
+    console.error('Panel user tags PATCH error:', error)
     return NextResponse.json({ error: 'Ошибка' }, { status: 500 })
   }
 }
