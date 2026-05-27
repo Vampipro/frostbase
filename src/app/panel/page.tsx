@@ -443,6 +443,7 @@ export default function PanelPage() {
   const [newScamDate, setNewScamDate] = useState('')
   const [newScamAmount, setNewScamAmount] = useState('')
   const [newScamCurrency, setNewScamCurrency] = useState('')
+  const [newCustomCurrency, setNewCustomCurrency] = useState('')
   const [newProofLink, setNewProofLink] = useState('')
   const [newTelegramUserId, setNewTelegramUserId] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -834,7 +835,7 @@ export default function PanelPage() {
           scammerType: newScammerType,
           scamDate: newScamDate,
           scamAmount: newScamAmount,
-          scamCurrency: newScamCurrency,
+          scamCurrency: newScamCurrency === 'custom' ? newCustomCurrency : newScamCurrency,
           proofLink: newProofLink,
           telegramUserId: newTelegramUserId,
         }),
@@ -2273,7 +2274,7 @@ export default function PanelPage() {
                         </select>
                       </div>
                       {newScamCurrency === 'custom' && (
-                        <Input placeholder="Название валюты..." value={newScamCurrency === 'custom' ? '' : newScamCurrency} onChange={(e) => setNewScamCurrency(e.target.value)}
+                        <Input placeholder="Название валюты..." value={newCustomCurrency} onChange={(e) => setNewCustomCurrency(e.target.value)}
                           className="h-10 rounded-lg bg-green-500/5 border-green-500/20 text-green-300 font-mono focus:border-green-500/40 mt-2" />
                       )}
                     </div>
