@@ -63,6 +63,8 @@ export async function GET() {
       statusTextColor: statusMap[s.status]?.textColor || '#ffffff',
       revisionReason: s.revisionReason,
       user: s.user,
+      guestIp: s.guestIp || '',
+      isGuest: !s.userId,
       createdAt: s.createdAt,
     }))
 
