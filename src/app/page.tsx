@@ -1771,52 +1771,6 @@ function ScamerDetailModal({ scammer, onClose }: { scammer: any; onClose: () => 
               <LikeButton scammerId={scammer.id} initialLikes={scammer.likeCount || 0} initialDislikes={scammer.dislikeCount || 0} large />
             </div>
 
-            {/* Screenshots / Proof links */}
-            {scammer.screenshots && scammer.screenshots.length > 0 && (
-              <div className="mb-4">
-                <p className="text-sm text-muted-foreground mb-2">Доказательства</p>
-                <div className="grid grid-cols-2 gap-2">
-                  {scammer.screenshots.map((src: string, i: number) => {
-                    const isUrl = src.startsWith('http://') || src.startsWith('https://')
-                    if (!isUrl) return null
-                    const isImage = /\.(jpe?g|png|webp|gif|bmp|avif)(\?.*)?$/i.test(src)
-                    return isImage ? (
-                      <div key={i} className="group/screenshot relative">
-                        <a href={src} target="_blank" rel="noopener noreferrer">
-                          <img
-                            src={src}
-                            alt={`Screenshot ${i + 1}`}
-                            className="w-full rounded-xl border border-border object-cover aspect-[4/3] transition-transform duration-200 group-hover/screenshot:scale-[1.03] group-hover/screenshot:border-blue-400/50"
-                            loading="lazy"
-                          />
-                        </a>
-                        {/* Hover preview - enlarged */}
-                        <div className="pointer-events-none absolute inset-0 z-50 flex items-center justify-center opacity-0 group-hover/screenshot:opacity-100 transition-opacity duration-200">
-                          <img
-                            src={src}
-                            alt={`Preview ${i + 1}`}
-                            className="max-w-[280px] max-h-[210px] rounded-xl border-2 border-blue-400/40 shadow-2xl shadow-black/50 object-contain"
-                            loading="lazy"
-                          />
-                        </div>
-                      </div>
-                    ) : (
-                      <a
-                        key={i}
-                        href={src}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="glass rounded-xl p-3 text-sm text-blue-400 hover:text-blue-300 hover:bg-muted transition-colors flex items-center gap-2 truncate"
-                      >
-                        <LinkIcon className="w-4 h-4 shrink-0" />
-                        <span className="truncate">{src.replace(/^https?:\/\//, '').replace(/\/$/, '')}</span>
-                      </a>
-                    )
-                  })}
-                </div>
-              </div>
-            )}
-
             {/* Comments section */}
             <div className="mb-4">
               <div className="flex items-center gap-2 mb-3">
