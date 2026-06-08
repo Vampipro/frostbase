@@ -456,6 +456,9 @@ export default function PanelPage() {
   const [editSearchCount, setEditSearchCount] = useState(0)
   const [editScammerType, setEditScammerType] = useState('')
   const [editScamDate, setEditScamDate] = useState('')
+  const [editScamAmount, setEditScamAmount] = useState('')
+  const [editScamCurrency, setEditScamCurrency] = useState('')
+  const [editCustomCurrency, setEditCustomCurrency] = useState('')
   const [editProofLink, setEditProofLink] = useState('')
   const [editTelegramUserId, setEditTelegramUserId] = useState('')
 
@@ -882,6 +885,8 @@ export default function PanelPage() {
           searchCount: Number(editSearchCount) || 0,
           scammerType: editScammerType,
           scamDate: editScamDate,
+          scamAmount: editScamAmount,
+          scamCurrency: editScamCurrency === 'custom' ? editCustomCurrency : editScamCurrency,
           proofLink: editProofLink,
           telegramUserId: editTelegramUserId,
         }),
@@ -1120,6 +1125,9 @@ export default function PanelPage() {
     setEditSearchCount(scammer.searchCount)
     setEditScammerType(scammer.scammerType || '')
     setEditScamDate(scammer.scamDate || '')
+    setEditScamAmount(scammer.scamAmount || '')
+    setEditScamCurrency(scammer.scamCurrency || '')
+    setEditCustomCurrency(scammer.scamCurrency && !['рубли','ton','stars','prgram','gram',''].includes(scammer.scamCurrency) ? scammer.scamCurrency : '')
     setEditProofLink(scammer.proofLink || '')
     setEditTelegramUserId(scammer.telegramUserId || '')
   }
@@ -2677,6 +2685,28 @@ export default function PanelPage() {
                   <label className="text-xs font-mono text-green-600 mb-1 block">Дата добавления</label>
                   <Input placeholder="10.03.2026" value={editScamDate} onChange={(e) => setEditScamDate(e.target.value)}
                     className="h-10 rounded-lg bg-green-500/5 border-green-500/20 text-green-300 font-mono focus:border-green-500/40" />
+                </div>
+                <div>
+                  <label className="text-xs font-mono text-green-600 mb-1 block">Сумма скама</label>
+                  <Input placeholder="5000" value={editScamAmount} onChange={(e) => setEditScamAmount(e.target.value)}
+                    className="h-10 rounded-lg bg-green-500/5 border-green-500/20 text-green-300 font-mono focus:border-green-500/40" />
+                </div>
+                <div>
+                  <label className="text-xs font-mono text-green-600 mb-1 block">Валюта</label>
+                  <div className="flex flex-wrap gap-2">
+                    {['', 'рубли', 'ton', 'stars', 'prgram', 'gram', 'custom'].map((c) => (
+                      <button key={c} type="button" onClick={() => { setEditScamCurrency(c); if (c !== 'custom') setEditCustomCurrency('') }}
+                        className={`px-3 py-1.5 rounded-lg font-mono text-xs border transition-all ${
+                          editScamCurrency === c ? 'border-green-500/40 bg-green-500/10 text-green-300' : 'border-green-500/10 text-green-600 hover:text-green-400'
+                        }`}>
+                        {c === '' ? 'Не указана' : c === 'custom' ? 'Другая' : c}
+                      </button>
+                    ))}
+                  </div>
+                  {editScamCurrency === 'custom' && (
+                    <Input placeholder="Название валюты" value={editCustomCurrency} onChange={(e) => setEditCustomCurrency(e.target.value)}
+                      className="h-10 rounded-lg bg-green-500/5 border-green-500/20 text-green-300 font-mono focus:border-green-500/40 mt-2" />
+                  )}
                 </div>
                 <div>
                   <label className="text-xs font-mono text-green-600 mb-1 block">Ссылка на доказательство</label>
