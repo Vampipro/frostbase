@@ -36,14 +36,14 @@ export async function POST(req: NextRequest) {
       if (user?.role === 'banned') {
         return NextResponse.json({ error: 'Вы заблокированы' }, { status: 403 })
       }
+    }
 
-      // Rate limit: max 1 appeal per scammer per user
-      const existingAppeal = await db.appeal.findFirst({
-        where: { scammerId, userId, status: 'pending' },
-      })
-      if (existingAppeal) {
-        return NextResponse.json({ error: 'У вас уже есть активная апелляция на этого человека' }, { status: 400 })
-      }
+    // Only 1 active (pending) appeal per scammer regardless of who submitted it
+    const existingAppeal = await db.appeal.findFirst({
+      where: { scammerId, status: 'pending' },
+    })
+    if (existingAppeal) {
+      return NextResponse.json({ error: 'На этого человека уже есть активная апелляция' }, { status: 400 })
     }
 
     const appeal = await db.appeal.create({
