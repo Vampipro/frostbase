@@ -133,6 +133,17 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ message: 'Пользователь разблокирован' })
     }
 
+    if (action === 'makeAdmin') {
+      if (targetUser.role === 'admin') {
+        return NextResponse.json({ error: 'Пользователь уже админ' }, { status: 400 })
+      }
+      await db.user.update({
+        where: { id },
+        data: { role: 'admin', banReason: '' },
+      })
+      return NextResponse.json({ message: 'Пользователь стал админом' })
+    }
+
     return NextResponse.json({ error: 'Неизвестное действие' }, { status: 400 })
   } catch (error) {
     console.error('Panel users PUT error:', error)
