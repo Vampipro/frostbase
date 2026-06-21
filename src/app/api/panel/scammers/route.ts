@@ -38,12 +38,18 @@ export async function GET(req: NextRequest) {
     const page = Math.max(1, parseInt(searchParams.get('page') || '1'))
     const limit = Math.min(100, Math.max(1, parseInt(searchParams.get('limit') || '50')))
     const search = (searchParams.get('search') || '').trim()
+    const telegramId = (searchParams.get('telegramId') || '').trim()
     const skip = (page - 1) * limit
 
-    const where: Record<string, unknown> = {}
+    const conditions: Record<string, unknown>[] = []
     if (search) {
-      where.name = { contains: search, mode: 'insensitive' }
+      conditions.push({ name: { contains: search, mode: 'insensitive' } })
     }
+    if (telegramId) {
+      conditions.push({ telegramUserId: telegramId })
+    }
+
+    const where: Record<string, unknown> = conditions.length > 0 ? { OR: conditions } : {}
 
     const [scammers, total] = await Promise.all([
       db.scammer.findMany({
