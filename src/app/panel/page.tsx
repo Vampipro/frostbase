@@ -825,6 +825,75 @@ export default function PanelPage() {
       return
     }
 
+    // Check for duplicates before adding
+    if (newName.trim() || newTelegramUserId.trim()) {
+      try {
+        const checkParams = new URLSearchParams()
+        checkParams.set('page', '1')
+        checkParams.set('limit', '5')
+        if (newName.trim()) checkParams.set('search', newName.trim())
+        if (newTelegramUserId.trim()) checkParams.set('telegramId', newTelegramUserId.trim())
+
+        const checkRes = await fetch(`/api/panel/scammers?${checkParams.toString()}`)
+        const checkData = await checkRes.json()
+        const found = checkData.results || []
+
+        if (found.length > 0) {
+          // Check if any match by name, telegramUserId, or description
+          const nameMatch = newName.trim() ? found.find((s: any) => s.name?.toLowerCase() === newName.trim().toLowerCase()) : null
+          const idMatch = newTelegramUserId.trim() ? found.find((s: any) => s.telegramUserId === newTelegramUserId.trim()) : null
+          const descMatch = newDesc.trim() ? found.find((s: any) => s.description?.toLowerCase().includes(newDesc.trim().toLowerCase())) : null
+
+          const match = nameMatch || idMatch || descMatch
+          if (match) {
+            const matchType = nameMatch ? 'имени' : idMatch ? 'Telegram ID' : 'описанию'
+            const confirmed = await new Promise<boolean>((resolve) => {
+              toast(
+                <div className="space-y-2">
+                  <p className="font-semibold text-sm">Найден похожий скамер по {matchType}:</p>
+                  <p className="text-sm text-muted-foreground">{match.name} {match.telegramUserId ? `(ID: ${match.telegramUserId})` : ''}</p>
+                  <div className="flex gap-2 pt-1">
+                    <button
+                      onClick={() => { resolve(false) }}
+                      className="px-3 py-1.5 rounded-lg bg-blue-500/20 text-blue-400 text-xs font-medium hover:bg-blue-500/30 transition-colors"
+                    >
+                      Открыть для редактирования
+                    </button>
+                    <button
+                      onClick={() => { resolve(true) }}
+                      className="px-3 py-1.5 rounded-lg bg-green-500/20 text-green-400 text-xs font-medium hover:bg-green-500/30 transition-colors"
+                    >
+                      Всё равно добавить
+                    </button>
+                  </div>
+                </div>,
+                { duration: 15000, closeButton: false, onAutoClose: () => resolve(false) }
+              )
+            })
+
+            if (!confirmed) {
+              // Open the matched scammer for editing
+              setEditScammer(match)
+              setEditName(match.name || '')
+              setEditDesc(match.description || '')
+              setEditStatus(match.status || 'scam')
+              setEditSearchCount(match.searchCount || 0)
+              setEditScammerType(match.scammerType || '')
+              setEditScamDate(match.scamDate || '')
+              setEditScamAmount(match.scamAmount || '')
+              setEditScamCurrency(match.scamCurrency || '')
+              setEditCustomCurrency(match.scamCurrency && !['рубли','ton','stars','prgram','gram',''].includes(match.scamCurrency) ? match.scamCurrency : '')
+              setEditProofLink(match.proofLink || '')
+              setEditTelegramUserId(match.telegramUserId || '')
+              return
+            }
+          }
+        }
+      } catch {
+        // If check fails, proceed with adding
+      }
+    }
+
     setSubmitting(true)
     try {
       const res = await fetch('/api/panel/scammers', {
@@ -1013,6 +1082,21 @@ export default function PanelPage() {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: userId, action: 'unban' }),
+      })
+      const data = await res.json()
+      if (!res.ok) { toast.error(data.error); return }
+      toast.success(data.message)
+      loadUsers(usersPage, usersSearch, usersRoleFilter)
+    } catch { toast.error('Ошибка') }
+  }
+
+  const handleMakeAdmin = async (userId: string, username: string) => {
+    if (!confirm(`Сделать ${username} админом?`)) return
+    try {
+      const res = await fetch('/api/panel/users', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: userId, action: 'makeAdmin' }),
       })
       const data = await res.json()
       if (!res.ok) { toast.error(data.error); return }
@@ -1754,6 +1838,15 @@ export default function PanelPage() {
                                       <Button
                                         size="sm"
                                         variant="outline"
+                                        onClick={() => handleMakeAdmin(u.id, u.username)}
+                                        className="h-8 border-amber-500/30 text-amber-400 hover:bg-amber-500/10 hover:text-amber-300 font-mono text-[10px] rounded-lg"
+                                      >
+                                        <Shield className="w-3 h-3 mr-1" />
+                                        Сделать админом
+                                      </Button>
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
                                         onClick={() => handleDeleteUser(u.id, u.username)}
                                         className="h-8 border-red-500/20 text-red-500 hover:bg-red-500/10 hover:text-red-400 font-mono text-[10px] rounded-lg"
                                       >
@@ -2293,7 +2386,7 @@ export default function PanelPage() {
                     </div>
                     <div>
                       <label className="text-xs font-mono text-green-600 mb-1.5 block">Telegram User ID</label>
-                      <Input placeholder="8393190771" value={newTelegramUserId} onChange={(e) => setNewTelegramUserId(e.target.value)}
+                      <Input placeholder="8393190771" value={newTelegramUserId} onChange={(e) => setNewTelegramUserId(e.target.value.replace(/[^\d]/g, ''))} inputMode="numeric" pattern="[0-9]*"
                         className="h-10 rounded-lg bg-green-500/5 border-green-500/20 text-green-300 font-mono focus:border-green-500/40" />
                     </div>
 
@@ -2715,7 +2808,7 @@ export default function PanelPage() {
                 </div>
                 <div>
                   <label className="text-xs font-mono text-green-600 mb-1 block">Telegram User ID</label>
-                  <Input placeholder="8393190771" value={editTelegramUserId} onChange={(e) => setEditTelegramUserId(e.target.value)}
+                  <Input placeholder="8393190771" value={editTelegramUserId} onChange={(e) => setEditTelegramUserId(e.target.value.replace(/[^\d]/g, ''))} inputMode="numeric" pattern="[0-9]*"
                     className="h-10 rounded-lg bg-green-500/5 border-green-500/20 text-green-300 font-mono focus:border-green-500/40" />
                 </div>
 
