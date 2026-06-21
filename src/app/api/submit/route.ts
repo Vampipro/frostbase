@@ -33,8 +33,32 @@ export async function POST(req: NextRequest) {
     // Get user ID (null for guests)
     let userId: string | null = null
     if (session?.user) {
-      const sessionUser = session.user as { userId?: string; id?: string }
+      const sessionUser = session.user as { userId?: string; id?: string; role?: string; banned?: boolean }
       userId = sessionUser.userId || sessionUser.id || null
+
+      // Check if user is banned
+      if (userId) {
+        const user = await db.user.findUnique({ where: { id: userId } })
+        if (user?.role === 'banned') {
+          return NextResponse.json({ error: 'Вы заблокированы' }, { status: 403 })
+        }
+
+        // Max 3 active (pending/revision) submissions per user
+        const activeCount = await db.submission.count({
+          where: { userId, status: { in: ['pending', 'revision'] } },
+        })
+        if (activeCount >= 3) {
+          return NextResponse.json({ error: 'Превышен лимит активных заявок (макс. 3). Дождитесь рассмотрения текущих.' }, { status: 400 })
+        }
+      }
+    } else {
+      // For guests, check by IP
+      const activeGuestCount = await db.submission.count({
+        where: { guestIp: clientIp, userId: null, status: { in: ['pending', 'revision'] } },
+      })
+      if (activeGuestCount >= 3) {
+        return NextResponse.json({ error: 'Превышен лимит активных заявок (макс. 3). Дождитесь рассмотрения текущих.' }, { status: 400 })
+      }
     }
 
     // FIX: Use exact match instead of contains for scammer lookup
