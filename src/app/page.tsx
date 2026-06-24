@@ -801,26 +801,79 @@ function SearchView() {
 
       {/* Tag search bar — status types like СКАМ, ПРОВЕРЕН, etc. */}
       {!searched && (
-        <div className="mt-4 px-2">
-          <p className="text-xs text-muted-foreground mb-2 font-medium">Поиск по статусам</p>
+        <div className="mt-5 px-2">
+          <div className="flex items-center gap-2 mb-3">
+            <div className="w-1 h-4 rounded-full bg-gradient-to-b from-blue-500 to-purple-500" />
+            <p className="text-[13px] font-semibold text-foreground/80 tracking-wide">Поиск по статусам</p>
+          </div>
           {allTags.length > 0 ? (
-            <div className="flex flex-wrap gap-1.5">
-              {allTags.map((tag) => (
-                <button
-                  key={tag.key}
-                  onClick={() => handleTagSearch(tag.key, tag.text)}
-                  className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition-all duration-200 hover:scale-105 hover:shadow-md ${
-                    activeTagKey === tag.key ? 'ring-2 ring-offset-1 ring-offset-background' : ''
-                  }`}
-                  style={{
-                    backgroundColor: tag.color,
-                    color: tag.textColor,
-                    ringColor: activeTagKey === tag.key ? tag.color : undefined,
-                  }}
-                >
-                  {tag.text} ({tag.count})
-                </button>
-              ))}
+            <div className="relative">
+              <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-none -mx-2 px-2 snap-x snap-mandatory">
+                {allTags.map((tag, idx) => (
+                  <motion.button
+                    key={tag.key}
+                    onClick={() => handleTagSearch(tag.key, tag.text)}
+                    initial={{ opacity: 0, y: 12, scale: 0.9 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    transition={{ delay: idx * 0.05, type: 'spring', stiffness: 400, damping: 25 }}
+                    whileHover={{ scale: 1.06, y: -1 }}
+                    whileTap={{ scale: 0.97 }}
+                    className="relative snap-start shrink-0 group"
+                  >
+                    {/* Glow backdrop */}
+                    <div
+                      className="absolute -inset-1 rounded-2xl opacity-0 group-hover:opacity-40 blur-md transition-opacity duration-300"
+                      style={{ backgroundColor: tag.color }}
+                    />
+                    {/* Active ring glow */}
+                    {activeTagKey === tag.key && (
+                      <motion.div
+                        layoutId="activeTagGlow"
+                        className="absolute -inset-1.5 rounded-2xl blur-md"
+                        style={{ backgroundColor: tag.color, opacity: 0.35 }}
+                        transition={{ type: 'spring', stiffness: 350, damping: 30 }}
+                      />
+                    )}
+                    {/* Button body */}
+                    <div
+                      className={`relative flex items-center gap-1.5 px-4 py-2 rounded-2xl text-[12px] font-semibold backdrop-blur-sm border transition-all duration-200 ${
+                        activeTagKey === tag.key ? 'border-transparent shadow-lg' : 'border-white/10 dark:border-white/10 bg-white/5 dark:bg-white/5 hover:border-white/20'
+                      }`}
+                      style={activeTagKey === tag.key ? {
+                        backgroundColor: tag.color + 'dd',
+                        color: tag.textColor,
+                        borderColor: tag.color,
+                        boxShadow: `0 4px 20px ${tag.color}55, 0 0 40px ${tag.color}22`
+                      } : {
+                        backgroundColor: tag.color + '15',
+                        color: tag.textColor,
+                        borderColor: tag.color + '30',
+                      }}
+                    >
+                      <span
+                        className="w-2 h-2 rounded-full shrink-0"
+                        style={{
+                          backgroundColor: activeTagKey === tag.key ? tag.textColor : tag.color,
+                          boxShadow: activeTagKey === tag.key ? `0 0 6px ${tag.textColor}` : `0 0 6px ${tag.color}`
+                        }}
+                      />
+                      <span>{tag.text}</span>
+                      <span
+                        className="ml-0.5 text-[10px] font-bold px-1.5 py-0 rounded-lg"
+                        style={{
+                          backgroundColor: activeTagKey === tag.key ? tag.textColor + '25' : tag.color + '20',
+                          color: tag.textColor,
+                        }}
+                      >
+                        {tag.count}
+                      </span>
+                    </div>
+                  </motion.button>
+                ))}
+              </div>
+              {/* Fade edges */}
+              <div className="absolute left-0 top-0 bottom-2 w-6 bg-gradient-to-r from-background to-transparent pointer-events-none" />
+              <div className="absolute right-0 top-0 bottom-2 w-6 bg-gradient-to-l from-background to-transparent pointer-events-none" />
             </div>
           ) : (
             <p className="text-xs text-muted-foreground/50">Нет статусов</p>
@@ -830,79 +883,136 @@ function SearchView() {
 
       {/* Tag search results */}
       {tagSearchResults && (
-        <div className="mt-4 space-y-2">
+        <motion.div
+          key={activeTagKey}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="mt-5 space-y-3"
+        >
+          {/* Header with status pill + close */}
           <div className="flex items-center justify-between px-1">
-            <p className="text-xs text-muted-foreground font-medium">
-              Статус: <span style={{ color: activeTagColor }}>{activeTagText}</span> — {tagSearchTotal} результатов
-            </p>
+            <div className="flex items-center gap-2.5">
+              <motion.div
+                layoutId="activeResultPill"
+                className="flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold"
+                style={{
+                  backgroundColor: activeTagColor + '22',
+                  color: activeTagColor,
+                  border: `1px solid ${activeTagColor}44`,
+                }}
+                transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+              >
+                <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: activeTagColor, boxShadow: `0 0 6px ${activeTagColor}` }} />
+                {activeTagText}
+              </motion.div>
+              <span className="text-[11px] text-muted-foreground font-medium">{tagSearchTotal} результатов</span>
+            </div>
             <button
               onClick={clearTagSearch}
-              className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+              className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors group"
             >
+              <X className="w-3 h-3 group-hover:rotate-90 transition-transform duration-200" />
               Сбросить
             </button>
           </div>
 
-          {tagSearchResults.map((scammer, i) => (
-            <motion.div
-              key={scammer.id}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: i * 0.05 }}
-            >
-              <div
+          {/* Results list */}
+          <div className="space-y-2">
+            {tagSearchResults.map((scammer, i) => (
+              <motion.div
+                key={scammer.id}
+                initial={{ opacity: 0, x: -8 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: i * 0.04, type: 'spring', stiffness: 300, damping: 25 }}
+                whileHover={{ scale: 1.01, x: 2 }}
+                className="rounded-2xl border bg-card/50 backdrop-blur-sm overflow-hidden cursor-pointer group"
+                style={{
+                  borderColor: activeTagColor + '18',
+                  boxShadow: `0 1px 3px rgba(0,0,0,0.08)`,
+                }}
                 onClick={() => { setSelectedScammer(scammer); recordView(scammer.id) }}
-                className="rounded-2xl border p-4 cursor-pointer hover:-translate-y-0.5 hover:shadow-lg transition-all duration-300"
-                style={statusBgStyle(scammer.statusColor)}
               >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3 min-w-0 flex-1">
-                    <Avatar className="h-10 w-10 shrink-0">
-                      <AvatarFallback className="bg-gradient-to-br from-blue-500 to-cyan-500 text-white font-semibold">
-                        {scammer.name.charAt(0).toUpperCase()}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div className="min-w-0">
-                      <p className="font-semibold truncate">{scammer.name}</p>
-                      <p className="text-xs text-muted-foreground">{scammer.searchCount} просмотров</p>
+                {/* Accent bar on the left */}
+                <div className="flex">
+                  <div
+                    className="w-1 shrink-0"
+                    style={{ backgroundColor: activeTagColor, opacity: 0.5 }}
+                  />
+                  <div className="flex-1 p-3.5 pl-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3 min-w-0 flex-1">
+                        <div
+                          className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 text-white font-bold text-sm"
+                          style={{ backgroundColor: activeTagColor + '30', color: activeTagColor }}
+                        >
+                          {scammer.name.charAt(0).toUpperCase()}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="font-semibold text-sm truncate group-hover:text-foreground transition-colors">{scammer.name}</p>
+                          <p className="text-[11px] text-muted-foreground flex items-center gap-1.5 mt-0.5">
+                            <Eye className="w-3 h-3" />
+                            {scammer.searchCount}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0 ml-2">
+                        <StatusBadge status={scammer.statusLabel || scammer.status} color={scammer.statusColor} textColor={scammer.statusTextColor} size="sm" />
+                        <ChevronRight className="w-4 h-4 text-muted-foreground/50 group-hover:text-foreground group-hover:translate-x-0.5 transition-all" />
+                      </div>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0 ml-2">
-                    <StatusBadge status={scammer.statusLabel || scammer.status} color={scammer.statusColor} textColor={scammer.statusTextColor} />
-                    <ChevronRight className="w-4 h-4 text-muted-foreground" />
-                  </div>
                 </div>
-              </div>
-            </motion.div>
-          ))}
+              </motion.div>
+            ))}
+          </div>
 
           {/* Tag pagination */}
           {tagSearchTotalPages > 1 && (
-            <div className="flex items-center justify-center gap-2 pt-2">
-              <Button
-                variant="outline"
-                size="sm"
+            <div className="flex items-center justify-center gap-3 pt-2">
+              <motion.button
+                whileHover={{ scale: 1.08 }}
+                whileTap={{ scale: 0.95 }}
                 disabled={tagSearchPage <= 1}
                 onClick={() => handleTagSearch(activeTagKey!, activeTagText!, tagSearchPage - 1)}
-                className="rounded-xl"
+                className="w-8 h-8 rounded-xl flex items-center justify-center border disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                style={{ borderColor: activeTagColor + '30', color: activeTagColor }}
               >
                 <ChevronLeft className="w-4 h-4" />
-              </Button>
-              <span className="text-xs text-muted-foreground">
-                {tagSearchPage} / {tagSearchTotalPages}
-              </span>
-              <Button
-                variant="outline"
-                size="sm"
+              </motion.button>
+              <div className="flex items-center gap-1.5">
+                {Array.from({ length: tagSearchTotalPages }, (_, idx) => idx + 1).map(p => (
+                  <motion.button
+                    key={p}
+                    whileHover={{ scale: 1.1 }}
+                    whileTap={{ scale: 0.9 }}
+                    onClick={() => handleTagSearch(activeTagKey!, activeTagText!, p)}
+                    className="w-7 h-7 rounded-lg flex items-center justify-center text-[11px] font-bold transition-all"
+                    style={p === tagSearchPage ? {
+                      backgroundColor: activeTagColor,
+                      color: '#fff',
+                      boxShadow: `0 2px 10px ${activeTagColor}55`,
+                    } : {
+                      color: activeTagColor + '88',
+                    }}
+                  >
+                    {p}
+                  </motion.button>
+                ))}
+              </div>
+              <motion.button
+                whileHover={{ scale: 1.08 }}
+                whileTap={{ scale: 0.95 }}
                 disabled={tagSearchPage >= tagSearchTotalPages}
                 onClick={() => handleTagSearch(activeTagKey!, activeTagText!, tagSearchPage + 1)}
-                className="rounded-xl"
+                className="w-8 h-8 rounded-xl flex items-center justify-center border disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                style={{ borderColor: activeTagColor + '30', color: activeTagColor }}
               >
                 <ChevronRight className="w-4 h-4" />
-              </Button>
+              </motion.button>
             </div>
           )}
-        </div>
+        </motion.div>
       )}
 
       <AnimatePresence>
