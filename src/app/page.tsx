@@ -1118,6 +1118,9 @@ function Top10View() {
   const { setSelectedScammer } = useAppStore()
   const [data, setData] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [topMode, setTopMode] = useState<'search' | 'exp'>('search')
+  const [expData, setExpData] = useState<any[]>([])
+  const [expLoading, setExpLoading] = useState(false)
 
   useEffect(() => {
     async function load() {
@@ -1134,6 +1137,16 @@ function Top10View() {
     load()
   }, [])
 
+  useEffect(() => {
+    if (topMode !== 'exp') return
+    setExpLoading(true)
+    fetch('/api/top-exp')
+      .then(r => r.json())
+      .then(d => setExpData(d.results || []))
+      .catch(() => {})
+      .finally(() => setExpLoading(false))
+  }, [topMode])
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -1149,70 +1162,187 @@ function Top10View() {
       exit={{ opacity: 0, y: -10 }}
       className="px-4 pt-6 pb-4"
     >
-      <div className="text-center mb-6">
+      <div className="text-center mb-5">
         <h2 className="text-2xl font-bold mb-1">
-          🔥 <span className="bg-gradient-to-r from-orange-400 to-red-400 bg-clip-text text-transparent">Топ-10</span>
+          🔥 <span className="bg-gradient-to-r from-orange-400 to-red-400 bg-clip-text text-transparent">Топ</span>
         </h2>
-        <p className="text-sm text-muted-foreground">Самые популярные поиски</p>
+        {/* Tabs */}
+        <div className="flex items-center justify-center gap-2 mt-3">
+          <button
+            onClick={() => setTopMode('search')}
+            className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-all duration-200 ${
+              topMode === 'search'
+                ? 'bg-foreground/10 text-foreground'
+                : 'text-muted-foreground hover:text-foreground/70'
+            }`}
+          >
+            По поискам
+          </button>
+          <button
+            onClick={() => setTopMode('exp')}
+            className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-all duration-200 flex items-center gap-1.5 ${
+              topMode === 'exp'
+                ? 'bg-gradient-to-r from-purple-500/20 to-blue-500/20 text-purple-300 border border-purple-500/30'
+                : 'text-muted-foreground hover:text-foreground/70'
+            }`}
+          >
+            По Exp
+            <span className="text-[9px] font-bold px-1.5 py-0 rounded-md bg-gradient-to-r from-purple-500 to-blue-500 text-white leading-none">NEW</span>
+          </button>
+        </div>
       </div>
 
-      {data.length === 0 ? (
-        <div className="text-center py-16">
-          <TrendingUp className="w-12 h-12 mx-auto mb-4 text-muted-foreground/50" />
-          <p className="text-muted-foreground">Пока нет данных</p>
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {data.map((item, i) => (
-            <motion.div
-              key={item.id}
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: i * 0.05 }}
-            >
-              <div
-                onClick={() => { setSelectedScammer(item); recordView(item.id) }}
-                className="rounded-2xl border p-4 cursor-pointer hover:-translate-y-0.5 hover:shadow-lg transition-all duration-300"
-                style={statusBgStyle(item.statusColor)}
-              >
-                <div className="flex items-center gap-3">
-                  <div className="relative shrink-0">
-                    <Avatar className="h-11 w-11">
-                      <AvatarFallback
-                        className={`font-bold text-white ${
-                          i === 0
-                            ? 'bg-gradient-to-br from-yellow-400 to-orange-500'
+      {/* === EXP TOP === */}
+      {topMode === 'exp' && (
+        <>
+          {expLoading ? (
+            <div className="flex items-center justify-center py-16">
+              <Loader2 className="w-6 h-6 animate-spin text-purple-500" />
+            </div>
+          ) : expData.length === 0 ? (
+            <div className="text-center py-16">
+              <span className="text-4xl mb-3 block">⚡</span>
+              <p className="text-muted-foreground text-sm">Пока нет данных</p>
+            </div>
+          ) : (
+            <div className="space-y-2.5">
+              {expData.map((u, i) => (
+                <motion.div
+                  key={u.id}
+                  initial={{ opacity: 0, x: -15 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: i * 0.06, type: 'spring', stiffness: 300, damping: 25 }}
+                  className="rounded-2xl border bg-card/50 backdrop-blur-sm overflow-hidden"
+                  style={{
+                    borderColor: i === 0 ? 'rgba(168,85,247,0.3)' : i === 1 ? 'rgba(139,92,246,0.2)' : 'rgba(100,100,200,0.1)',
+                    boxShadow: i === 0 ? '0 0 20px rgba(168,85,247,0.15)' : i === 1 ? '0 0 12px rgba(139,92,246,0.1)' : 'none',
+                  }}
+                >
+                  <div className="flex items-center gap-3 p-3.5">
+                    {/* Rank */}
+                    <div className="relative shrink-0">
+                      <div
+                        className="w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm text-white"
+                        style={{
+                          background: i === 0
+                            ? 'linear-gradient(135deg, #f59e0b, #ef4444)'
                             : i === 1
-                            ? 'bg-gradient-to-br from-gray-300 to-gray-400'
+                            ? 'linear-gradient(135deg, #8b5cf6, #6366f1)'
                             : i === 2
-                            ? 'bg-gradient-to-br from-amber-600 to-amber-700'
-                            : 'bg-gradient-to-br from-blue-500/50 to-cyan-500/50'
-                        }`}
+                            ? 'linear-gradient(135deg, #3b82f6, #06b6d4)'
+                            : 'linear-gradient(135deg, rgba(100,100,200,0.3), rgba(100,100,200,0.15))',
+                        }}
                       >
                         {i + 1}
+                      </div>
+                    </div>
+
+                    {/* Avatar */}
+                    <Avatar className="h-10 w-10 shrink-0 border-2" style={{ borderColor: i < 3 ? 'rgba(168,85,247,0.4)' : 'transparent' }}>
+                      {u.image && <AvatarImage src={u.image} />}
+                      <AvatarFallback className="bg-gradient-to-br from-purple-500 to-blue-500 text-white font-bold">
+                        {u.username.charAt(0).toUpperCase()}
                       </AvatarFallback>
                     </Avatar>
-                    {i < 3 && (
-                      <motion.div
-                        initial={{ scale: 0 }}
-                        animate={{ scale: 1 }}
-                        transition={{ delay: i * 0.1 + 0.3 }}
-                        className="absolute -top-1 -right-1 text-xs"
-                      >
-                        {i === 0 ? '🥇' : i === 1 ? '🥈' : '🥉'}
-                      </motion.div>
-                    )}
+
+                    {/* Info */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className="font-semibold text-sm truncate">{u.username}</p>
+                        {u.tag && (
+                          <span
+                            className="text-[9px] px-1.5 py-0.5 rounded-full font-semibold shrink-0"
+                            style={{ backgroundColor: u.tag.color + '22', color: u.tag.textColor, border: `1px solid ${u.tag.color}44` }}
+                          >
+                            {u.tag.text}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-muted-foreground mt-0.5">
+                        {u.approvedSubmissions} принятых заявок
+                      </p>
+                    </div>
+
+                    {/* EXP */}
+                    <div className="flex items-center gap-1 px-3 py-1.5 rounded-xl shrink-0" style={{
+                      backgroundColor: i === 0 ? 'rgba(168,85,247,0.15)' : 'rgba(100,100,200,0.08)',
+                      border: `1px solid ${i === 0 ? 'rgba(168,85,247,0.25)' : 'rgba(100,100,200,0.12)'}`,
+                    }}>
+                      <span className="text-sm">⚡</span>
+                      <span className="text-sm font-bold bg-gradient-to-r from-purple-400 to-blue-400 bg-clip-text text-transparent">
+                        {u.exp.toLocaleString('ru-RU')}
+                      </span>
+                    </div>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-semibold truncate">{item.name}</p>
-                    <p className="text-xs text-muted-foreground">{item.totalSearches} поисков</p>
+                </motion.div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
+      {/* === SEARCH TOP (original) === */}
+      {topMode === 'search' && (
+        <>
+          {data.length === 0 ? (
+            <div className="text-center py-16">
+              <TrendingUp className="w-12 h-12 mx-auto mb-4 text-muted-foreground/50" />
+              <p className="text-muted-foreground">Пока нет данных</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {data.map((item, i) => (
+                <motion.div
+                  key={item.id}
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: i * 0.05 }}
+                >
+                  <div
+                    onClick={() => { setSelectedScammer(item); recordView(item.id) }}
+                    className="rounded-2xl border p-4 cursor-pointer hover:-translate-y-0.5 hover:shadow-lg transition-all duration-300"
+                    style={statusBgStyle(item.statusColor)}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="relative shrink-0">
+                        <Avatar className="h-11 w-11">
+                          <AvatarFallback
+                            className={`font-bold text-white ${
+                              i === 0
+                                ? 'bg-gradient-to-br from-yellow-400 to-orange-500'
+                                : i === 1
+                                ? 'bg-gradient-to-br from-gray-300 to-gray-400'
+                                : i === 2
+                                ? 'bg-gradient-to-br from-amber-600 to-amber-700'
+                                : 'bg-gradient-to-br from-blue-500/50 to-cyan-500/50'
+                            }`}
+                          >
+                            {i + 1}
+                          </AvatarFallback>
+                        </Avatar>
+                        {i < 3 && (
+                          <motion.div
+                            initial={{ scale: 0 }}
+                            animate={{ scale: 1 }}
+                            transition={{ delay: i * 0.1 + 0.3 }}
+                            className="absolute -top-1 -right-1 text-xs"
+                          >
+                            {i === 0 ? '🥇' : i === 1 ? '🥈' : '🥉'}
+                          </motion.div>
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-semibold truncate">{item.name}</p>
+                        <p className="text-xs text-muted-foreground">{item.totalSearches} поисков</p>
+                      </div>
+                      <StatusBadge status={item.statusLabel || item.status} color={item.statusColor} textColor={item.statusTextColor} />
+                    </div>
                   </div>
-                  <StatusBadge status={item.statusLabel || item.status} color={item.statusColor} textColor={item.statusTextColor} />
-                </div>
-              </div>
-            </motion.div>
-          ))}
-        </div>
+                </motion.div>
+              ))}
+            </div>
+          )}
+        </>
       )}
     </motion.div>
   )
@@ -2361,6 +2491,8 @@ function ProfileView({ user }: { user: any }) {
   const [avatarUrl, setAvatarUrl] = useState((user as any)?.image || '')
   const [avatarSaving, setAvatarSaving] = useState(false)
   const [showAvatarEdit, setShowAvatarEdit] = useState(false)
+  const [userExp, setUserExp] = useState(0)
+  const [expLoading, setExpLoading] = useState(true)
   const drunkMode = useAppStore((s) => s.drunkMode)
   const setDrunkMode = useAppStore((s) => s.setDrunkMode)
   const logoutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -2412,6 +2544,16 @@ function ProfileView({ user }: { user: any }) {
       }
     }
     load()
+  }, [user])
+
+  // Load user EXP
+  useEffect(() => {
+    if (!user) return
+    fetch('/api/profile')
+      .then(r => r.json())
+      .then(d => { if (d.exp !== undefined) setUserExp(d.exp) })
+      .catch(() => {})
+      .finally(() => setExpLoading(false))
   }, [user])
 
   const handleResubmit = async (sub: Submission) => {
@@ -2547,6 +2689,16 @@ function ProfileView({ user }: { user: any }) {
               {(user as any).role === 'admin' ? 'Админ' : 'Пользователь'}
             </Badge>
             <UserTagsBadge userId={(user as any)?.userId || (user as any)?.id || ''} size="md" className="mt-1" />
+            {/* EXP */}
+            <div className="mt-3 flex items-center gap-2.5">
+              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-purple-500/15 to-blue-500/15 border border-purple-500/20">
+                <span className="text-base">⚡</span>
+                <span className="text-sm font-bold bg-gradient-to-r from-purple-400 to-blue-400 bg-clip-text text-transparent">
+                  {expLoading ? '...' : userExp.toLocaleString('ru-RU')}
+                </span>
+                <span className="text-[10px] font-semibold text-purple-400/70 uppercase tracking-wider">EXP</span>
+              </div>
+            </div>
           </div>
         </div>
       </div>
