@@ -11,7 +11,7 @@ import {
   Loader2, Eye, EyeOff, X, ChevronDown, ArrowLeft, ChevronLeft, ChevronRight,
   Terminal, Database, Activity, Settings, LogOut, RefreshCw, Tag, MessageSquare,
   Gamepad2, Play, Pause,
-  Download, Clock, Scale, Menu, Link as LinkIcon,
+  Download, Clock, Scale, Menu, Link as LinkIcon, Zap,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -71,7 +71,7 @@ interface Stats {
   dbChangesToday: number
 }
 
-type PanelTab = 'dashboard' | 'scammers' | 'users' | 'submissions' | 'comments' | 'appeals' | 'stats' | 'add' | 'statuses' | 'export'
+type PanelTab = 'dashboard' | 'scammers' | 'users' | 'submissions' | 'comments' | 'appeals' | 'stats' | 'add' | 'statuses' | 'export' | 'exp'
 
 // ==================== PING PONG GAME ====================
 function PingPongGame() {
@@ -511,6 +511,18 @@ export default function PanelPage() {
   const [revisionSub, setRevisionSub] = useState<Submission | null>(null)
   const [revisionReason, setRevisionReason] = useState('')
 
+  // EXP tab
+  const [expRules, setExpRules] = useState<any[]>([])
+  const [expRulesLoading, setExpRulesLoading] = useState(false)
+  const [newRuleAction, setNewRuleAction] = useState('submission')
+  const [newRuleStatus, setNewRuleStatus] = useState('approved')
+  const [newRuleThreshold, setNewRuleThreshold] = useState('')
+  const [newRuleExpReward, setNewRuleExpReward] = useState('')
+  const [expUserId, setExpUserId] = useState('')
+  const [expAmount, setExpAmount] = useState('')
+  const [expUserSearch, setExpUserSearch] = useState('')
+  const [expUserResults, setExpUserResults] = useState<any[]>([])
+
   // Reject with reason
   const [rejectSub, setRejectSub] = useState<Submission | null>(null)
   const [rejectReason, setRejectReason] = useState('')
@@ -799,6 +811,17 @@ export default function PanelPage() {
     if (tab !== 'users' || !isAdminChecked) return
     loadUsers(1, usersSearch, usersRoleFilter)
   }, [tab, isAdminChecked, usersSearch, usersRoleFilter, loadUsers])
+
+  // Load EXP rules when exp tab is active
+  useEffect(() => {
+    if (tab !== 'exp' || !isAdminChecked) return
+    setExpRulesLoading(true)
+    fetch('/api/panel/exp-rules')
+      .then(r => r.json())
+      .then(d => setExpRules(d.rules || []))
+      .catch(() => toast.error('Ошибка загрузки правил EXP'))
+      .finally(() => setExpRulesLoading(false))
+  }, [tab, isAdminChecked])
 
   // Load top10 when stats tab is active
   useEffect(() => {
@@ -1189,6 +1212,61 @@ export default function PanelPage() {
     }
   }
 
+  // === EXP handlers ===
+  const handleCreateExpRule = async () => {
+    const threshold = parseInt(newRuleThreshold)
+    const expReward = parseInt(newRuleExpReward)
+    if (!threshold || threshold < 1 || !expReward || expReward < 1) {
+      toast.error('Значения должны быть больше 0')
+      return
+    }
+    try {
+      const res = await fetch('/api/panel/exp-rules', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ actionType: newRuleAction, status: newRuleStatus, threshold, expReward }),
+      })
+      const data = await res.json()
+      if (!res.ok) { toast.error(data.error); return }
+      toast.success('Правило создано')
+      setNewRuleThreshold('')
+      setNewRuleExpReward('')
+      setExpRules(prev => [data.rule, ...prev])
+    } catch { toast.error('Ошибка') }
+  }
+
+  const handleDeleteExpRule = async (id: string) => {
+    try {
+      await fetch(`/api/panel/exp-rules?id=${id}`, { method: 'DELETE' })
+      toast.success('Правило удалено')
+      setExpRules(prev => prev.filter(r => r.id !== id))
+    } catch { toast.error('Ошибка') }
+  }
+
+  const handleExpUserSearch = async () => {
+    const q = expUserSearch.trim()
+    if (!q) { setExpUserResults([]); return }
+    try {
+      const res = await fetch(`/api/panel/users?search=${encodeURIComponent(q)}&limit=5`)
+      const data = await res.json()
+      setExpUserResults(data.results || [])
+    } catch { setExpUserResults([]) }
+  }
+
+  const handleExpChange = async (amount: number) => {
+    if (!expUserId) { toast.error('Выберите пользователя'); return }
+    try {
+      const res = await fetch('/api/panel/users/exp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: expUserId, amount }),
+      })
+      const data = await res.json()
+      if (!res.ok) { toast.error(data.error); return }
+      toast.success(`${data.message} → ${data.newExp} EXP`)
+    } catch { toast.error('Ошибка') }
+  }
+
   const handleDeleteUser = async (userId: string, username: string) => {
     if (!confirm('Удалить пользователя ' + username + '? Все его данные будут удалены безвозвратно.')) return
     if (!confirm('Точно удалить ' + username + '? Это действие необратимо.')) return
@@ -1275,6 +1353,7 @@ export default function PanelPage() {
               { id: 'stats' as const, icon: TrendingUp, label: 'Статистика' },
               { id: 'add' as const, icon: Plus, label: 'Добавить' },
               { id: 'statuses' as const, icon: Tag, label: 'Типы статусов' },
+              { id: 'exp' as const, icon: Zap, label: 'ЭКСПААААААА' },
               { id: 'export' as const, icon: Download, label: 'Экспорт' },
             ].map((item) => {
               const Icon = item.icon
@@ -1388,6 +1467,7 @@ export default function PanelPage() {
                     { id: 'stats' as const, icon: TrendingUp, label: 'Статистика' },
                     { id: 'add' as const, icon: Plus, label: 'Добавить' },
                     { id: 'statuses' as const, icon: Tag, label: 'Типы статусов' },
+                    { id: 'exp' as const, icon: Zap, label: 'ЭКСПААААААА' },
                     { id: 'export' as const, icon: Download, label: 'Экспорт' },
                   ].map((item) => {
                     const Icon = item.icon
@@ -1800,6 +1880,7 @@ export default function PanelPage() {
                                     <span>{u.submissionsCount} заявок</span>
                                     <span>{u.commentsCount} комм.</span>
                                     <span>{u.searchesCount} поисков</span>
+                                    <span className="text-purple-400">⚡ {u.exp || 0} EXP</span>
                                   </div>
                                   {u.role === 'banned' && u.banReason && (
                                     <p className="text-[10px] text-red-400/80 font-mono mt-0.5">Причина: {u.banReason}</p>
@@ -2622,6 +2703,175 @@ export default function PanelPage() {
                         <Plus className="w-4 h-4 mr-2" />
                         Создать тип
                       </Button>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+
+              {tab === 'exp' && (
+                <motion.div key="exp" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                  <div className="mb-6">
+                    <h2 className="text-2xl font-bold font-mono text-green-300">{'>'} ЭКСПААААААА</h2>
+                    <p className="text-sm text-green-600 font-mono mt-1">{'// '}Настройка начисления опыта и ручная накрутка</p>
+                  </div>
+
+                  {/* Create rule */}
+                  <div className="glass rounded-xl p-4 mb-4">
+                    <h3 className="text-sm font-bold font-mono text-green-300 mb-3">{'>'} Новое правило</h3>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                      <div>
+                        <label className="text-[11px] text-green-600 font-mono mb-1 block">Действие</label>
+                        <select
+                          value={newRuleAction}
+                          onChange={e => setNewRuleAction(e.target.value)}
+                          className="w-full h-9 rounded-lg bg-green-500/5 border border-green-500/20 text-sm text-green-300 px-2 font-mono focus:outline-none focus:border-green-500/50"
+                        >
+                          <option value="submission">Заявка</option>
+                          <option value="comment">Комментарий</option>
+                          <option value="search">Поиск</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-[11px] text-green-600 font-mono mb-1 block">Статус</label>
+                        <select
+                          value={newRuleStatus}
+                          onChange={e => setNewRuleStatus(e.target.value)}
+                          className="w-full h-9 rounded-lg bg-green-500/5 border border-green-500/20 text-sm text-green-300 px-2 font-mono focus:outline-none focus:border-green-500/50"
+                        >
+                          <option value="approved">Одобрено</option>
+                          <option value="rejected">Отклонено</option>
+                          <option value="all">Любой</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-[11px] text-green-600 font-mono mb-1 block">Каждые N</label>
+                        <Input
+                          type="number"
+                          min="1"
+                          placeholder="1"
+                          value={newRuleThreshold}
+                          onChange={e => setNewRuleThreshold(e.target.value)}
+                          className="h-9 rounded-lg bg-green-500/5 border-green-500/20 text-green-300 font-mono text-sm focus:border-green-500/50"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[11px] text-green-600 font-mono mb-1 block">EXP</label>
+                        <Input
+                          type="number"
+                          min="1"
+                          placeholder="10"
+                          value={newRuleExpReward}
+                          onChange={e => setNewRuleExpReward(e.target.value)}
+                          className="h-9 rounded-lg bg-green-500/5 border-green-500/20 text-green-300 font-mono text-sm focus:border-green-500/50"
+                        />
+                      </div>
+                    </div>
+                    <Button
+                      onClick={handleCreateExpRule}
+                      className="mt-3 h-9 bg-green-600 hover:bg-green-700 text-white font-mono text-xs rounded-lg"
+                    >
+                      <Plus className="w-3 h-3 mr-1" />
+                      Добавить правило
+                    </Button>
+                  </div>
+
+                  {/* Rules list */}
+                  <div className="glass rounded-xl p-4 mb-6">
+                    <h3 className="text-sm font-bold font-mono text-green-300 mb-3">{'>'} Активные правила</h3>
+                    {expRulesLoading ? (
+                      <div className="flex justify-center py-6"><Loader2 className="w-5 h-5 animate-spin text-green-500" /></div>
+                    ) : expRules.length === 0 ? (
+                      <p className="text-sm text-green-600 font-mono">Нет правил. Создай первое выше.</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {expRules.map((rule: any) => {
+                          const actionLabels: Record<string, string> = { submission: 'Заявка', comment: 'Комментарий', search: 'Поиск' }
+                          const statusLabels: Record<string, string> = { approved: 'Одобрено', rejected: 'Отклонено', all: 'Любой' }
+                          return (
+                            <div key={rule.id} className="flex items-center justify-between rounded-lg bg-green-500/5 border border-green-500/10 px-3 py-2">
+                              <div className="font-mono text-sm text-green-300">
+                                За каждые <span className="text-yellow-400 font-bold">{rule.threshold}</span> {actionLabels[rule.actionType]?.toLowerCase() || rule.actionType} ({statusLabels[rule.status]}) → <span className="text-purple-400 font-bold">+{rule.expReward} EXP</span>
+                              </div>
+                              <button
+                                onClick={() => handleDeleteExpRule(rule.id)}
+                                className="ml-2 p-1.5 rounded-lg hover:bg-red-500/10 text-red-400 hover:text-red-300 transition-colors shrink-0"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Manual EXP manipulation */}
+                  <div className="glass rounded-xl p-4">
+                    <h3 className="text-sm font-bold font-mono text-green-300 mb-3">{'>'} Накрутка / снятие EXP (тесты)</h3>
+                    <div className="space-y-3">
+                      {/* User search */}
+                      <div>
+                        <label className="text-[11px] text-green-600 font-mono mb-1 block">Найти пользователя</label>
+                        <div className="flex gap-2">
+                          <Input
+                            placeholder="Никнейм..."
+                            value={expUserSearch}
+                            onChange={e => setExpUserSearch(e.target.value)}
+                            onKeyDown={e => e.key === 'Enter' && handleExpUserSearch()}
+                            className="h-9 flex-1 rounded-lg bg-green-500/5 border-green-500/20 text-green-300 font-mono text-sm focus:border-green-500/50"
+                          />
+                          <Button onClick={handleExpUserSearch} variant="outline" className="h-9 border-green-500/20 text-green-400 font-mono text-xs rounded-lg">
+                            <Search className="w-3 h-3" />
+                          </Button>
+                        </div>
+                        {/* Search results dropdown */}
+                        {expUserResults.length > 0 && (
+                          <div className="mt-1 rounded-lg border border-green-500/20 overflow-hidden">
+                            {expUserResults.map((u: any) => (
+                              <button
+                                key={u.id}
+                                onClick={() => {
+                                  setExpUserId(u.id)
+                                  setExpUserSearch(u.username)
+                                  setExpUserResults([])
+                                }}
+                                className={`w-full text-left px-3 py-2 text-xs font-mono hover:bg-green-500/10 transition-colors flex justify-between ${expUserId === u.id ? 'bg-green-500/10 text-green-300' : 'text-green-400'}`}
+                              >
+                                <span>{u.username}</span>
+                                <span className="text-purple-400">⚡ {u.exp || 0}</span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Amount */}
+                      <div>
+                        <label className="text-[11px] text-green-600 font-mono mb-1 block">Количество EXP</label>
+                        <Input
+                          type="number"
+                          placeholder="100 или -50"
+                          value={expAmount}
+                          onChange={e => setExpAmount(e.target.value)}
+                          className="h-9 rounded-lg bg-green-500/5 border-green-500/20 text-green-300 font-mono text-sm focus:border-green-500/50"
+                        />
+                      </div>
+
+                      <div className="flex gap-2">
+                        <Button
+                          onClick={() => handleExpChange(parseInt(expAmount) || 0)}
+                          disabled={!expUserId || !expAmount}
+                          className="h-9 bg-purple-600 hover:bg-purple-700 text-white font-mono text-xs rounded-lg"
+                        >
+                          <Zap className="w-3 h-3 mr-1" />
+                          Применить
+                        </Button>
+                        {expUserId && (
+                          <span className="flex items-center text-[11px] text-green-600 font-mono">
+                            Выбран: <span className="text-green-300 ml-1">{expUserSearch}</span>
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </motion.div>
