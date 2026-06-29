@@ -808,7 +808,15 @@ function SearchView() {
           </div>
           {allTags.length > 0 ? (
             <div className="relative">
-              <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-none -mx-2 px-2 snap-x snap-mandatory">
+              <div
+                className="flex gap-2 overflow-x-auto pb-2 scrollbar-none -mx-2 px-2 snap-x snap-mandatory"
+                onWheel={(e) => {
+                  if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
+                    e.currentTarget.scrollLeft += e.deltaY
+                    e.preventDefault()
+                  }
+                }}
+              >
                 {allTags.map((tag, idx) => (
                   <motion.button
                     key={tag.key}
