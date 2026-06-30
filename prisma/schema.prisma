@@ -23,6 +23,7 @@ model User {
   comments    Comment[]
   tags        UserTag[]
   appeals     Appeal[]
+  expGrants   ExpGrant[]
 }
 
 model UserTag {
@@ -181,4 +182,23 @@ model ExpRule {
   threshold  Int      // every N actions
   expReward  Int      // how much EXP to give
   createdAt  DateTime @default(now())
+
+  grants ExpGrant[]
+}
+
+model ExpGrant {
+  id         String   @id @default(cuid())
+  userId     String
+  ruleId     String
+  sourceId   String   // ID of the triggering action (submission/comment/searchLog id)
+  actionType String   // denormalized for cleanup convenience
+  expReward  Int
+  createdAt  DateTime @default(now())
+
+  user User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rule ExpRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+
+  @@unique([ruleId, sourceId]) // prevent double-grant for same rule+action
+  @@index([userId])
+  @@index([actionType])
 }
