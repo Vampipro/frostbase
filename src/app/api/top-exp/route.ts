@@ -3,10 +3,12 @@ import { db } from '@/lib/db'
 
 export async function GET() {
   try {
+    // Исключаем админов (могут накручивать себе EXP вручную) и забаненных.
+    // Берём 10 — для согласованности с вкладкой "Топ" (top10 тоже 10).
     const topUsers = await db.user.findMany({
       orderBy: { exp: 'desc' },
-      take: 5,
-      where: { role: { not: 'banned' } },
+      take: 10,
+      where: { role: { notIn: ['banned', 'admin'] } },
       select: {
         id: true,
         username: true,
