@@ -3,6 +3,29 @@ import { db } from '@/lib/db'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 
+export async function GET() {
+  try {
+    const session = await getServerSession(authOptions)
+    if (!session?.user?.userId) {
+      return NextResponse.json({ error: 'Не авторизован' }, { status: 401 })
+    }
+
+    const user = await db.user.findUnique({
+      where: { id: session.user.userId },
+      select: { exp: true, role: true },
+    })
+
+    if (!user) {
+      return NextResponse.json({ error: 'Пользователь не найден' }, { status: 404 })
+    }
+
+    return NextResponse.json({ exp: user.exp, role: user.role })
+  } catch (error) {
+    console.error('Profile get error:', error)
+    return NextResponse.json({ error: 'Ошибка' }, { status: 500 })
+  }
+}
+
 export async function PUT(request: Request) {
   try {
     const session = await getServerSession(authOptions)
