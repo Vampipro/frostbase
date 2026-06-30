@@ -1255,6 +1255,10 @@ export default function PanelPage() {
 
   const handleExpChange = async (amount: number) => {
     if (!expUserId) { toast.error('Выберите пользователя'); return }
+    if (!Number.isInteger(amount) || amount === 0) {
+      toast.error('Введите целое число, не равное 0')
+      return
+    }
     try {
       const res = await fetch('/api/panel/users/exp', {
         method: 'POST',
@@ -1264,6 +1268,11 @@ export default function PanelPage() {
       const data = await res.json()
       if (!res.ok) { toast.error(data.error); return }
       toast.success(`${data.message} → ${data.newExp} EXP`)
+      // Сбрасываем форму после успешного применения
+      setExpAmount('')
+      setExpUserId('')
+      setExpUserSearch('')
+      setExpUserResults([])
     } catch { toast.error('Ошибка') }
   }
 
@@ -2723,7 +2732,12 @@ export default function PanelPage() {
                         <label className="text-[11px] text-green-600 font-mono mb-1 block">Действие</label>
                         <select
                           value={newRuleAction}
-                          onChange={e => setNewRuleAction(e.target.value)}
+                          onChange={e => {
+                            setNewRuleAction(e.target.value)
+                            // Для поиска имеет смысл только «Любой» — переключаем автоматически,
+                            // чтобы не провалить серверную валидацию
+                            if (e.target.value === 'search') setNewRuleStatus('all')
+                          }}
                           className="w-full h-9 rounded-lg bg-green-500/5 border border-green-500/20 text-sm text-green-300 px-2 font-mono focus:outline-none focus:border-green-500/50"
                         >
                           <option value="submission">Заявка</option>
@@ -2736,10 +2750,11 @@ export default function PanelPage() {
                         <select
                           value={newRuleStatus}
                           onChange={e => setNewRuleStatus(e.target.value)}
-                          className="w-full h-9 rounded-lg bg-green-500/5 border border-green-500/20 text-sm text-green-300 px-2 font-mono focus:outline-none focus:border-green-500/50"
+                          disabled={newRuleAction === 'search'}
+                          className="w-full h-9 rounded-lg bg-green-500/5 border border-green-500/20 text-sm text-green-300 px-2 font-mono focus:outline-none focus:border-green-500/50 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                          <option value="approved">Одобрено</option>
-                          <option value="rejected">Отклонено</option>
+                          {newRuleAction !== 'search' && <option value="approved">Одобрено</option>}
+                          {newRuleAction !== 'search' && <option value="rejected">Отклонено</option>}
                           <option value="all">Любой</option>
                         </select>
                       </div>
