@@ -36,11 +36,17 @@ export async function POST(req: NextRequest) {
 
     const { actionType, status, threshold, expReward } = await req.json()
 
-    if (!actionType || !threshold || !expReward) {
+    if (!actionType || !status) {
       return NextResponse.json({ error: 'Заполните все поля' }, { status: 400 })
     }
 
-    if (threshold < 1 || expReward < 1) {
+    // Жёсткая валидация: должны быть целыми числами >= 1
+    const numThreshold = Number(threshold)
+    const numExpReward = Number(expReward)
+    if (!Number.isInteger(numThreshold) || !Number.isInteger(numExpReward)) {
+      return NextResponse.json({ error: 'Значения должны быть целыми числами' }, { status: 400 })
+    }
+    if (numThreshold < 1 || numExpReward < 1) {
       return NextResponse.json({ error: 'Значения должны быть больше 0' }, { status: 400 })
     }
 
@@ -53,8 +59,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Неверный статус' }, { status: 400 })
     }
 
+    // Для search имеет смысл только status='all' — предупредим админа
+    if (actionType === 'search' && status !== 'all') {
+      return NextResponse.json(
+        { error: 'Для поиска доступен только статус «Любой»' },
+        { status: 400 }
+      )
+    }
+
     const rule = await db.expRule.create({
-      data: { actionType, status, threshold, expReward },
+      data: { actionType, status, threshold: numThreshold, expReward: numExpReward },
     })
 
     return NextResponse.json({ rule, message: 'Правило создано' })
