@@ -2554,9 +2554,11 @@ function ProfileView({ user }: { user: any }) {
     load()
   }, [user])
 
-  // Load user EXP
+  // Load user EXP — срабатывает при каждом монтировании ProfileView (т.к. key="profile"),
+  // так что при возвращении на таб profile EXP рефетчится и показывает актуальное значение.
   useEffect(() => {
     if (!user) return
+    setExpLoading(true)
     fetch('/api/profile')
       .then(r => r.json())
       .then(d => { if (d.exp !== undefined) setUserExp(d.exp) })
