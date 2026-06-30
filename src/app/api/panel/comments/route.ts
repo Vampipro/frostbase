@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
+import { grantExpForAction } from '@/lib/exp'
 
 async function checkAdmin() {
   const session = await getServerSession(authOptions)
@@ -64,10 +65,22 @@ export async function PUT(req: NextRequest) {
     }
 
     if (action === 'approve') {
+      // Проверим, был ли коммент уже одобрен — чтобы не начислять EXP повторно
+      const existing = await db.comment.findUnique({
+        where: { id },
+        select: { userId: true, approved: true },
+      })
+      if (!existing) {
+        return NextResponse.json({ error: 'Комментарий не найден' }, { status: 404 })
+      }
       await db.comment.update({
         where: { id },
         data: { approved: true },
       })
+      // Начисляем EXP только при первом одобрении
+      if (!existing.approved && existing.userId) {
+        grantExpForAction(existing.userId, 'comment', 'approved', id).catch(() => {})
+      }
       return NextResponse.json({ message: 'Комментарий опубликован' })
     }
 
