@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
+import { grantExpForAction } from '@/lib/exp'
 
 async function getStatusMap(): Promise<Record<string, { label: string; color: string; textColor: string }>> {
   try {
@@ -33,20 +34,26 @@ export async function GET(req: NextRequest) {
 
     // Track search press (scammerId=null means it's a button press, not a card click)
     const searchQuery = `${query || ''}${telegramId ? (query ? ' | ' : '') + telegramId : ''}`
+    const searchUserId =
+      session?.user &&
+      ((session.user as { userId?: string; id?: string }).userId ||
+        (session.user as { userId?: string; id?: string }).id ||
+        null)
+
     db.searchLog.create({
       data: {
         query: searchQuery,
         scammerId: null,
-        ...(session?.user
-          ? {
-              userId:
-                (session.user as { userId?: string; id?: string }).userId ||
-                (session.user as { userId?: string; id?: string }).id ||
-                null,
-            }
-          : {}),
+        ...(searchUserId ? { userId: searchUserId } : {}),
       },
-    }).catch(() => {}) // Fire and forget, don't block the search
+    })
+      .then((log) => {
+        // Начисляем EXP за поиск только залогиненным юзерам
+        if (log && searchUserId) {
+          grantExpForAction(searchUserId, 'search', 'all', log.id).catch(() => {})
+        }
+      })
+      .catch(() => {}) // Fire and forget, don't block the search
 
     // Build where clause: search by name AND/OR telegramUserId
     // Strip @ from query for fuzzy matching
