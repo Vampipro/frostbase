@@ -47,6 +47,7 @@ import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import UserNameHistoryModal from '@/components/UserNameHistoryModal'
 import UserTagsBadge from '@/components/UserTagsBadge'
+import { calcLevel } from '@/lib/levels'
 
 // ==================== VIEW DEDUP ====================
 const recentlyViewed = new Map<string, number>()
@@ -541,16 +542,19 @@ function FloatingScammers() {
                     )}
 
                     {/* Stats row */}
-                    <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-                      <span className="flex items-center gap-0.5">
-                        <ThumbsUp className="w-3 h-3 text-green-400" />
-                        {scammer.likeCount}
-                      </span>
-                      <span className="flex items-center gap-0.5">
-                        <ThumbsDown className="w-3 h-3 text-red-400" />
-                        {scammer.dislikeCount}
-                      </span>
-                      <span>{scammer.searchCount} поисков</span>
+                    <div className="flex items-center justify-between gap-2 text-[10px] text-muted-foreground">
+                      <div className="flex items-center gap-2">
+                        <span className="flex items-center gap-0.5">
+                          <ThumbsUp className="w-3 h-3 text-green-400" />
+                          {scammer.likeCount}
+                        </span>
+                        <span className="flex items-center gap-0.5">
+                          <ThumbsDown className="w-3 h-3 text-red-400" />
+                          {scammer.dislikeCount}
+                        </span>
+                        <span>{scammer.searchCount} поисков</span>
+                      </div>
+                      <RatingBadge likes={scammer.likeCount || 0} dislikes={scammer.dislikeCount || 0} size="sm" />
                     </div>
                   </div>
                 </motion.div>
@@ -934,7 +938,7 @@ function SearchView() {
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: i * 0.04, type: 'spring', stiffness: 300, damping: 25 }}
                 whileHover={{ scale: 1.01, x: 2 }}
-                className="rounded-2xl border bg-card/50 backdrop-blur-sm overflow-hidden cursor-pointer group"
+                className="relative rounded-2xl border bg-card/50 backdrop-blur-sm overflow-hidden cursor-pointer group"
                 style={{
                   borderColor: activeTagColor + '18',
                   boxShadow: `0 1px 3px rgba(0,0,0,0.08)`,
@@ -968,6 +972,10 @@ function SearchView() {
                         <StatusBadge status={scammer.statusLabel || scammer.status} color={scammer.statusColor} textColor={scammer.statusTextColor} size="sm" />
                         <ChevronRight className="w-4 h-4 text-muted-foreground/50 group-hover:text-foreground group-hover:translate-x-0.5 transition-all" />
                       </div>
+                    </div>
+                    {/* Rating badge — справа снизу */}
+                    <div className="flex justify-end mt-2.5">
+                      <RatingBadge likes={scammer.likeCount || 0} dislikes={scammer.dislikeCount || 0} size="sm" />
                     </div>
                   </div>
                 </div>
@@ -1058,7 +1066,7 @@ function SearchView() {
                 >
                   <div
                     onClick={() => { setSelectedScammer(scammer); recordView(scammer.id) }}
-                    className="rounded-2xl border p-4 cursor-pointer hover:-translate-y-0.5 hover:shadow-lg transition-all duration-300"
+                    className="relative rounded-2xl border p-4 cursor-pointer hover:-translate-y-0.5 hover:shadow-lg transition-all duration-300"
                     style={statusBgStyle(scammer.statusColor)}
                   >
                     <div className="flex items-center justify-between">
@@ -1085,6 +1093,10 @@ function SearchView() {
                     {/* Like/Dislike bar */}
                     <div className="flex items-center gap-1 mt-3 pt-3 border-t border-border">
                       <LikeButton scammerId={scammer.id} initialLikes={scammer.likeCount || 0} initialDislikes={scammer.dislikeCount || 0} />
+                    </div>
+                    {/* Rating badge — справа снизу */}
+                    <div className="absolute bottom-3 right-3">
+                      <RatingBadge likes={scammer.likeCount || 0} dislikes={scammer.dislikeCount || 0} size="sm" />
                     </div>
                   </div>
                 </motion.div>
@@ -1271,14 +1283,26 @@ function Top10View() {
                       </p>
                     </div>
 
-                    {/* EXP */}
-                    <div className="flex items-center gap-1 px-3 py-1.5 rounded-xl shrink-0" style={{
-                      backgroundColor: i === 0 ? 'rgba(168,85,247,0.15)' : 'rgba(100,100,200,0.08)',
-                      border: `1px solid ${i === 0 ? 'rgba(168,85,247,0.25)' : 'rgba(100,100,200,0.12)'}`,
-                    }}>
-                      <span className="text-sm">⚡</span>
-                      <span className="text-sm font-bold bg-gradient-to-r from-purple-400 to-blue-400 bg-clip-text text-transparent">
-                        {u.exp.toLocaleString('ru-RU')}
+                    {/* Уровень + EXP */}
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <span
+                        className="w-7 h-7 rounded-lg flex items-center justify-center text-white font-extrabold text-xs"
+                        style={{
+                          background: 'linear-gradient(135deg, #a855f7 0%, #6366f1 50%, #3b82f6 100%)',
+                          boxShadow: i === 0 ? '0 0 10px rgba(168,85,247,0.5)' : 'none',
+                        }}
+                        title={`Уровень ${calcLevel(u.exp).level}`}
+                      >
+                        {calcLevel(u.exp).level}
+                      </span>
+                      <span className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl" style={{
+                        backgroundColor: i === 0 ? 'rgba(168,85,247,0.15)' : 'rgba(100,100,200,0.08)',
+                        border: `1px solid ${i === 0 ? 'rgba(168,85,247,0.25)' : 'rgba(100,100,200,0.12)'}`,
+                      }}>
+                        <span className="text-sm">⚡</span>
+                        <span className="text-sm font-bold bg-gradient-to-r from-purple-400 to-blue-400 bg-clip-text text-transparent">
+                          {u.exp.toLocaleString('ru-RU')}
+                        </span>
                       </span>
                     </div>
                   </div>
@@ -1308,7 +1332,7 @@ function Top10View() {
                 >
                   <div
                     onClick={() => { setSelectedScammer(item); recordView(item.id) }}
-                    className="rounded-2xl border p-4 cursor-pointer hover:-translate-y-0.5 hover:shadow-lg transition-all duration-300"
+                    className="relative rounded-2xl border p-4 cursor-pointer hover:-translate-y-0.5 hover:shadow-lg transition-all duration-300"
                     style={statusBgStyle(item.statusColor)}
                   >
                     <div className="flex items-center gap-3">
@@ -1344,6 +1368,10 @@ function Top10View() {
                         <p className="text-xs text-muted-foreground">{item.totalSearches} поисков</p>
                       </div>
                       <StatusBadge status={item.statusLabel || item.status} color={item.statusColor} textColor={item.statusTextColor} />
+                    </div>
+                    {/* Rating badge — справа снизу */}
+                    <div className="absolute bottom-3 right-3">
+                      <RatingBadge likes={item.likeCount || 0} dislikes={item.dislikeCount || 0} size="sm" />
                     </div>
                   </div>
                 </motion.div>
@@ -2699,19 +2727,67 @@ function ProfileView({ user }: { user: any }) {
               {(user as any).role === 'admin' ? 'Админ' : 'Пользователь'}
             </Badge>
             <UserTagsBadge userId={(user as any)?.userId || (user as any)?.id || ''} size="md" className="mt-1" />
-            {/* EXP */}
-            <div className="mt-3 flex items-center gap-2.5">
-              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-purple-500/15 to-blue-500/15 border border-purple-500/20">
-                <span className="text-base">⚡</span>
-                <span className="text-sm font-bold bg-gradient-to-r from-purple-400 to-blue-400 bg-clip-text text-transparent">
-                  {expLoading ? '...' : userExp.toLocaleString('ru-RU')}
-                </span>
-                <span className="text-[10px] font-semibold text-purple-400/70 uppercase tracking-wider">EXP</span>
-              </div>
-            </div>
           </div>
         </div>
       </div>
+
+      {/* Отдельный блок уровня и EXP */}
+      {(() => {
+        const levelInfo = calcLevel(userExp)
+        const progressPct = Math.round(levelInfo.progress * 100)
+        return (
+          <div className="glass rounded-2xl p-5 mb-5">
+            {/* Уровень */}
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2.5">
+                <div
+                  className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-extrabold text-base shrink-0"
+                  style={{
+                    background: 'linear-gradient(135deg, #a855f7 0%, #6366f1 50%, #3b82f6 100%)',
+                    boxShadow: '0 0 16px rgba(168,85,247,0.4), 0 0 32px rgba(99,102,241,0.2)',
+                  }}
+                >
+                  {levelInfo.level}
+                </div>
+                <div className="min-w-0">
+                  <p className="text-[10px] font-semibold text-purple-400/70 uppercase tracking-wider leading-none mb-0.5">Уровень</p>
+                  <p className="text-sm font-bold text-foreground leading-none">{levelInfo.level}</p>
+                </div>
+              </div>
+              <div className="text-right">
+                <p className="text-[10px] font-semibold text-purple-400/70 uppercase tracking-wider leading-none mb-0.5">EXP</p>
+                <p className="text-sm font-bold bg-gradient-to-r from-purple-400 to-blue-400 bg-clip-text text-transparent leading-none">
+                  {expLoading ? '...' : userExp.toLocaleString('ru-RU')}
+                </p>
+              </div>
+            </div>
+
+            {/* Прогресс-бар */}
+            <div className="space-y-1.5">
+              <div className="relative h-2 rounded-full bg-secondary/60 overflow-hidden">
+                <motion.div
+                  initial={{ width: 0 }}
+                  animate={{ width: `${progressPct}%` }}
+                  transition={{ duration: 0.6, ease: 'easeOut' }}
+                  className="absolute inset-y-0 left-0 rounded-full"
+                  style={{
+                    background: 'linear-gradient(90deg, #a855f7 0%, #6366f1 50%, #3b82f6 100%)',
+                    boxShadow: '0 0 8px rgba(168,85,247,0.5)',
+                  }}
+                />
+              </div>
+              <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+                <span>
+                  {expLoading ? '…' : `${levelInfo.current.toLocaleString('ru-RU')} / ${levelInfo.needed.toLocaleString('ru-RU')} EXP`}
+                </span>
+                <span>
+                  {expLoading ? '…' : `до ${levelInfo.level + 1} ур. — ${(levelInfo.needed - levelInfo.current).toLocaleString('ru-RU')} EXP`}
+                </span>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* Avatar edit modal */}
       {showAvatarEdit && (
@@ -3042,6 +3118,44 @@ function StatusBadge({ status, size = 'md', color, textColor }: { status: string
         }
         .animate-pulse-slow { animation: pulse-slow 2.5s ease-in-out infinite; }
       `}</style>
+    </span>
+  )
+}
+
+// ==================== RATING BADGE (likes − dislikes) ====================
+// Показывает чистый рейтинг карточки скамера: «+2», «0», «−6».
+// Зелёный — позитивный, серый — нейтральный, красный — негативный.
+function RatingBadge({ likes = 0, dislikes = 0, size = 'md' }: { likes?: number; dislikes?: number; size?: 'sm' | 'md' }) {
+  const net = (Number(likes) || 0) - (Number(dislikes) || 0)
+  const isPositive = net > 0
+  const isNegative = net < 0
+
+  const sizeClasses = size === 'sm' ? 'text-[10px] px-1.5 py-0.5 gap-0.5' : 'text-[11px] px-2 py-0.5 gap-1'
+  const iconSize = size === 'sm' ? 'w-2.5 h-2.5' : 'w-3 h-3'
+
+  const palette = isPositive
+    ? { bg: 'rgba(34, 197, 94, 0.14)', color: '#4ade80', border: 'rgba(34, 197, 94, 0.3)', glow: 'rgba(34, 197, 94, 0.18)' }
+    : isNegative
+      ? { bg: 'rgba(239, 68, 68, 0.14)', color: '#f87171', border: 'rgba(239, 68, 68, 0.3)', glow: 'rgba(239, 68, 68, 0.18)' }
+      : { bg: 'rgba(113, 113, 122, 0.14)', color: '#a1a1aa', border: 'rgba(113, 113, 122, 0.25)', glow: 'transparent' }
+
+  // Человекочитаемая подпись: +2 / 0 / −6 (используем минус U+2212 для красоты)
+  const sign = isPositive ? '+' : isNegative ? '−' : ''
+  const label = `${sign}${Math.abs(net)}`
+
+  return (
+    <span
+      className={`inline-flex items-center rounded-full border font-bold leading-none ${sizeClasses}`}
+      style={{
+        backgroundColor: palette.bg,
+        color: palette.color,
+        borderColor: palette.border,
+        boxShadow: palette.glow === 'transparent' ? 'none' : `0 0 8px ${palette.glow}`,
+      }}
+      title={`${likes} лайков · ${dislikes} дизлайков`}
+    >
+      <ThumbsUp className={iconSize} />
+      {label}
     </span>
   )
 }
