@@ -19,6 +19,7 @@ import { Badge } from '@/components/ui/badge'
 import { Textarea } from '@/components/ui/textarea'
 import { signOut } from 'next-auth/react'
 import NameHistoryModal from '@/components/NameHistoryModal'
+import { calcLevel } from '@/lib/levels'
 
 interface Scammer {
   id: string
@@ -1890,6 +1891,7 @@ export default function PanelPage() {
                                     <span>{u.commentsCount} комм.</span>
                                     <span>{u.searchesCount} поисков</span>
                                     <span className="text-purple-400">⚡ {u.exp || 0} EXP</span>
+                                    <span className="text-cyan-400">[LVL {calcLevel(u.exp || 0).level}]</span>
                                   </div>
                                   {u.role === 'banned' && u.banReason && (
                                     <p className="text-[10px] text-red-400/80 font-mono mt-0.5">Причина: {u.banReason}</p>
@@ -2853,7 +2855,7 @@ export default function PanelPage() {
                                 className={`w-full text-left px-3 py-2 text-xs font-mono hover:bg-green-500/10 transition-colors flex justify-between ${expUserId === u.id ? 'bg-green-500/10 text-green-300' : 'text-green-400'}`}
                               >
                                 <span>{u.username}</span>
-                                <span className="text-purple-400">⚡ {u.exp || 0}</span>
+                                <span className="text-purple-400">⚡ {u.exp || 0} <span className="text-cyan-400">[LVL {calcLevel(u.exp || 0).level}]</span></span>
                               </button>
                             ))}
                           </div>
