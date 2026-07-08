@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
+import { grantExpForAction } from '@/lib/exp'
 
 async function getStatusMap(): Promise<Record<string, { label: string; color: string; textColor: string }>> {
   try {
@@ -108,6 +109,8 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: 'Заявка не найдена' }, { status: 404 })
     }
 
+    const previousStatus = submission.status
+
     const adminUserId = (user as { userId?: string; id?: string }).userId || (user as { id?: string }).id || ''
 
     if (status === 'approved') {
@@ -171,6 +174,15 @@ export async function PUT(req: NextRequest) {
           revisionReason: typeof revisionReason === 'string' ? revisionReason : '',
         },
       })
+    }
+
+    // Начисление EXP автору заявки при смене статуса (только если статус реально изменился
+    // и автор — зарегистрированный юзер, не гость).
+    if (submission.userId && previousStatus !== status) {
+      // 'revision' не считаем "финальным" статусом для EXP — он промежуточный
+      if (status === 'approved' || status === 'rejected') {
+        grantExpForAction(submission.userId, 'submission', status, id).catch(() => {})
+      }
     }
 
     return NextResponse.json({ message: 'Статус обновлен' })
