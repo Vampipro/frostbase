@@ -1,12 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 
-// ФІКС ДЛЯ TURBOPACK: Використовуємо чистий Prisma Client замість $queryRawUnsafe
+// Безпечний вибір даних без сирого SQL для сумісності з Turbopack
 async function getStatusMap(): Promise<Record<string, { label: string; color: string; textColor: string }>> {
   try {
-    // Зверни увагу: якщо в schema.prisma модель названа з великої літери (ScammerStatus), 
-    // Prisma Client зазвичай генерує метод з малої (scammerStatus). 
-    // Якщо TypeScript буде латися, зміни "scammerStatus" на "ScammerStatus"
     const rows = await db.scammerStatus.findMany({
       select: {
         key: true,
@@ -30,7 +27,6 @@ async function getStatusMap(): Promise<Record<string, { label: string; color: st
   }
 }
 
-// Безпечний парсинг JSON, який не ламається на проді, якщо Prisma вже повернула об'єкт/масив
 function safeParseJSON(val: unknown, fallback: unknown): unknown {
   if (!val) return fallback
   if (typeof val === 'object') return val
@@ -44,11 +40,11 @@ function safeParseJSON(val: unknown, fallback: unknown): unknown {
   return fallback
 }
 
-// GET /api/scammers/by-tag?tag=scam            — один тег (обратная совместимость)
-// GET /api/scammers/by-tag?tags=scam,verified  — несколько тегов (мультиселект)
+// GET /api/scammers/by-tag?tag=scam            — один тег
+// GET /api/scammers/by-tag?tags=scam,verified  — кілька тегів
 export async function GET(req: NextRequest) {
   try {
-    // ФІКС 400 ПОМИЛКИ: використовуємо req.nextUrl для надійності на Vercel
+    // Надійне отримання параметрів через nextUrl
     const { searchParams } = req.nextUrl
     
     const singleTag = searchParams.get('tag')?.trim()
@@ -56,7 +52,6 @@ export async function GET(req: NextRequest) {
     const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10))
     const limit = Math.min(50, Math.max(1, parseInt(searchParams.get('limit') || '20', 10)))
 
-    // Збираємо список тегів
     let tags: string[] = []
     if (multiTags) {
       tags = multiTags.split(',').map(t => t.trim()).filter(Boolean)
@@ -72,7 +67,6 @@ export async function GET(req: NextRequest) {
       ? { status: tags[0] }
       : { status: { in: tags } }
 
-    // ОПТИМІЗАЦІЯ: Паралельні запити до БД
     const [total, scammers, statusMap] = await Promise.all([
       db.scammer.count({ where }),
       db.scammer.findMany({
@@ -118,11 +112,6 @@ export async function GET(req: NextRequest) {
     })
   } catch (error: any) {
     console.error('Tag search error:', error)
-    
-    // ТИМЧАСОВИЙ ДЕБАГ-ВАРІАНТ: якщо раптом знову впаде 500, у відповіді буде видно точну причину
-    return NextResponse.json({ 
-      error: 'Ошибка сервера', 
-      details: error?.message || String(error) 
-    }, { status: 500 })
+    return NextResponse.json({ error: 'Ошибка сервера', details: error?.message }, { status: 500 })
   }
 }
