@@ -14,7 +14,7 @@ export async function GET(
     }
 
     const tags = await db.userTag.findMany({
-      where: { userId },
+      where: { userId, hidden: false },
       orderBy: { createdAt: 'desc' },
       select: {
         id: true,
