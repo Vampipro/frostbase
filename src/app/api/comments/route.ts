@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
+import { getClientIp, isIpBanned } from '@/lib/ban-check'
 
 const RATE_LIMIT_MS = 2 * 60 * 1000 // 2 minutes
 
@@ -60,6 +61,12 @@ export async function POST(req: NextRequest) {
     const session = await getServerSession(authOptions)
     if (!session?.user) {
       return NextResponse.json({ error: 'Не авторизован' }, { status: 401 })
+    }
+
+    // Проверка бана по IP — даже залогиненный юзер с забаненного IP не может писать
+    const clientIp = getClientIp(req)
+    if (await isIpBanned(clientIp)) {
+      return NextResponse.json({ error: 'Ваш IP заблокирован' }, { status: 403 })
     }
 
     const sessionUser = session.user as { userId?: string; id?: string; role?: string; banned?: boolean }
