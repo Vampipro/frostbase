@@ -16,20 +16,33 @@ async function getStatusMap(): Promise<Record<string, { label: string; color: st
   }
 }
 
-// GET /api/scammers/by-tag?tag=<status key>&page=1&limit=20
-// Returns all scammers with the given status key (e.g. "scam", "verified")
+// GET /api/scammers/by-tag?tag=scam            — один тег (обратная совместимость)
+// GET /api/scammers/by-tag?tags=scam,verified  — несколько тегов (мультиселект)
+// Возвращает скамеров с любым из указанных статусов.
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url)
-    const tag = searchParams.get('tag')?.trim()
+    const singleTag = searchParams.get('tag')?.trim()
+    const multiTags = searchParams.get('tags')?.trim()
     const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10))
     const limit = Math.min(50, Math.max(1, parseInt(searchParams.get('limit') || '20', 10)))
 
-    if (!tag) {
+    // Собираем список тегов: приоритет у multiTags, иначе singleTag
+    let tags: string[] = []
+    if (multiTags) {
+      tags = multiTags.split(',').map(t => t.trim()).filter(Boolean)
+    } else if (singleTag) {
+      tags = [singleTag]
+    }
+
+    if (tags.length === 0) {
       return NextResponse.json({ error: 'Укажите статус' }, { status: 400 })
     }
 
-    const where = { status: tag }
+    // Если один тег — простой where; если несколько — OR / in
+    const where = tags.length === 1
+      ? { status: tags[0] }
+      : { status: { in: tags } }
 
     const [total, scammers] = await Promise.all([
       db.scammer.count({ where }),
@@ -73,7 +86,7 @@ export async function GET(req: NextRequest) {
       total,
       totalPages: Math.ceil(total / limit),
       page,
-      tag,
+      tags,
     })
   } catch (error) {
     console.error('Tag search error:', error)
