@@ -28,12 +28,14 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Укажите одну цифру 0-9' }, { status: 400 })
     }
 
-    // Use raw SQL for LIKE with prefix
+    // Use raw SQL for LIKE with prefix.
+    // Фильтруем по status = 'scam' — чтобы карусель показывала только реальных скамеров,
+    // а не проверенных/подозрительных. Согласовано со статистикой в /api/stats.
     const scammers = await db.$queryRawUnsafe(
       `SELECT id, name, description, status, "searchCount", "likeCount", "dislikeCount",
               "scammerType", "scamDate", "scamAmount", "scamCurrency", "proofLink", "telegramUserId", "screenshots"
        FROM "Scammer"
-       WHERE "telegramUserId" LIKE $1 || '%'
+       WHERE "telegramUserId" LIKE $1 || '%' AND status = 'scam'
        ORDER BY RANDOM()
        LIMIT $2`,
       digit,
@@ -61,7 +63,7 @@ export async function GET(req: NextRequest) {
     }))
 
     const total = await db.$queryRawUnsafe(
-      `SELECT COUNT(*)::int as c FROM "Scammer" WHERE "telegramUserId" LIKE $1 || '%'`,
+      `SELECT COUNT(*)::int as c FROM "Scammer" WHERE "telegramUserId" LIKE $1 || '%' AND status = 'scam'`,
       digit
     ) as any[]
 
