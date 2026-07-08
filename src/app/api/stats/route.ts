@@ -47,10 +47,12 @@ export async function GET() {
       db.searchLog.count({ where: { scammerId: { not: null } } }),
     ])
 
-    // Digit-start stats: count scammers whose telegramUserId starts with each digit 0-9
+    // Digit-start stats: считаем только реальных скамеров (status = 'scam').
+    // Раньше считались ВСЕ записи в таблице Scammer (включая verified/suspicious),
+    // что вводило в заблуждение — в счётчике были и проверенные люди.
     const allScammers = await db.scammer.findMany({
-      where: { telegramUserId: { not: '' } },
-      select: { telegramUserId: true },
+      where: { telegramUserId: { not: '' }, status: 'scam' },
+      select: { telegramUserId: true, status: true },
     })
 
     const digitCounts: Record<string, number> = {}
