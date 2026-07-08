@@ -646,13 +646,13 @@ function SearchView() {
   const [sixSevenMode, setSixSevenMode] = useState(false)
   // Tag search state (status types: СКАМ, ПРОВЕРЕН, etc.)
   const [allTags, setAllTags] = useState<{ key: string; text: string; count: number; color: string; textColor: string }[]>([])
-  const [activeTagKey, setActiveTagKey] = useState<string | null>(null)
-  const [activeTagText, setActiveTagText] = useState<string | null>(null)
-  const [activeTagColor, setActiveTagColor] = useState('#3b82f6')
+  // Мультиселект: массив выбранных тегов. Один тег — обычный поиск, несколько — OR.
+  const [selectedTags, setSelectedTags] = useState<Array<{ key: string; text: string; color: string }>>([])
   const [tagSearchResults, setTagSearchResults] = useState<ScammerResult[] | null>(null)
   const [tagSearchTotal, setTagSearchTotal] = useState(0)
   const [tagSearchTotalPages, setTagSearchTotalPages] = useState(0)
   const [tagSearchPage, setTagSearchPage] = useState(1)
+  const tagScrollRef = useRef<HTMLDivElement>(null)
 
   // Load all visible tags
   useEffect(() => {
@@ -662,30 +662,64 @@ function SearchView() {
       .catch(() => {})
   }, [])
 
-  const handleTagSearch = useCallback(async (key: string, text: string, page = 1) => {
-    setActiveTagKey(key)
-    setActiveTagText(text)
-    const tagObj = allTags.find(t => t.key === key)
-    if (tagObj) setActiveTagColor(tagObj.color)
+  // Запрос к API с массивом выбранных тегов
+  const fetchTagResults = useCallback(async (tags: Array<{ key: string }>, page = 1) => {
+    if (tags.length === 0) {
+      setTagSearchResults(null)
+      setTagSearchTotal(0)
+      setTagSearchTotalPages(0)
+      setTagSearchPage(1)
+      return
+    }
     setTagSearchPage(page)
     try {
-      const res = await fetch(`/api/scammers/by-tag?tag=${encodeURIComponent(key)}&page=${page}&limit=20`)
+      const tagsParam = tags.map(t => t.key).join(',')
+      const res = await fetch(`/api/scammers/by-tag?tags=${encodeURIComponent(tagsParam)}&page=${page}&limit=20`)
       const data = await res.json()
       setTagSearchResults(data.results || [])
       setTagSearchTotal(data.total || 0)
       setTagSearchTotalPages(data.totalPages || 0)
     } catch {
-      toast.error('Ошибка поиска по тегу')
+      toast.error('Ошибка поиска по статусам')
     }
-  }, [allTags])
+  }, [])
+
+  // Toggle тега в наборе: клик по невыбранному — добавляет, клик по выбранному — убирает.
+  // Если после убирания набор пуст — сбрасываем результаты.
+  const handleTagToggle = useCallback((tag: { key: string; text: string; color: string }) => {
+    setSelectedTags(prev => {
+      const exists = prev.find(t => t.key === tag.key)
+      let next: Array<{ key: string; text: string; color: string }>
+      if (exists) {
+        next = prev.filter(t => t.key !== tag.key)
+      } else {
+        next = [...prev, tag]
+      }
+      fetchTagResults(next, 1)
+      return next
+    })
+  }, [fetchTagResults])
+
+  const selectAllTags = useCallback(() => {
+    const all = allTags.map(t => ({ key: t.key, text: t.text, color: t.color }))
+    setSelectedTags(all)
+    fetchTagResults(all, 1)
+  }, [allTags, fetchTagResults])
 
   const clearTagSearch = useCallback(() => {
-    setActiveTagKey(null)
-    setActiveTagText(null)
+    setSelectedTags([])
     setTagSearchResults(null)
     setTagSearchTotal(0)
     setTagSearchTotalPages(0)
     setTagSearchPage(1)
+  }, [])
+
+  // Прокрутка карусели тегов стрелками (для десктопа)
+  const scrollTags = useCallback((dir: 'left' | 'right') => {
+    const el = tagScrollRef.current
+    if (!el) return
+    const amount = 200
+    el.scrollBy({ left: dir === 'left' ? -amount : amount, behavior: 'smooth' })
   }, [])
 
   const handleSearch = useCallback(async () => {
@@ -806,14 +840,48 @@ function SearchView() {
       {/* Tag search bar — status types like СКАМ, ПРОВЕРЕН, etc. */}
       {!searched && (
         <div className="mt-5 px-2">
-          <div className="flex items-center gap-2 mb-3">
-            <div className="w-1 h-4 rounded-full bg-gradient-to-b from-blue-500 to-purple-500" />
-            <p className="text-[13px] font-semibold text-foreground/80 tracking-wide">Поиск по статусам</p>
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <div className="w-1 h-4 rounded-full bg-gradient-to-b from-blue-500 to-purple-500" />
+              <p className="text-[13px] font-semibold text-foreground/80 tracking-wide">Поиск по статусам</p>
+              {selectedTags.length > 0 && (
+                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-blue-500/20 text-blue-400">
+                  {selectedTags.length} выбрано
+                </span>
+              )}
+            </div>
+            {allTags.length > 0 && (
+              <div className="flex items-center gap-1.5">
+                {selectedTags.length > 0 && (
+                  <button
+                    onClick={clearTagSearch}
+                    className="text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    Сбросить
+                  </button>
+                )}
+                <button
+                  onClick={selectAllTags}
+                  className="text-[11px] font-semibold text-blue-400 hover:text-blue-300 transition-colors"
+                >
+                  {selectedTags.length === allTags.length ? 'Снять все' : 'Все'}
+                </button>
+              </div>
+            )}
           </div>
           {allTags.length > 0 ? (
             <div className="relative">
+              {/* Левая стрелка — только десктоп */}
+              <button
+                onClick={() => scrollTags('left')}
+                className="hidden sm:flex absolute left-0 top-1/2 -translate-y-1/2 z-20 w-7 h-7 rounded-full glass items-center justify-center hover:bg-white/10 transition-colors shrink-0"
+                aria-label="Прокрутить влево"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
               <div
-                className="flex gap-2 overflow-x-auto pb-2 scrollbar-none -mx-2 px-2 snap-x snap-mandatory"
+                ref={tagScrollRef}
+                className="flex gap-2 overflow-x-auto pb-2 scrollbar-none sm:px-9 snap-x snap-mandatory scroll-smooth"
                 onWheel={(e) => {
                   if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
                     e.currentTarget.scrollLeft += e.deltaY
@@ -821,71 +889,82 @@ function SearchView() {
                   }
                 }}
               >
-                {allTags.map((tag, idx) => (
-                  <motion.button
-                    key={tag.key}
-                    onClick={() => handleTagSearch(tag.key, tag.text)}
-                    initial={{ opacity: 0, y: 12, scale: 0.9 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    transition={{ delay: idx * 0.05, type: 'spring', stiffness: 400, damping: 25 }}
-                    whileHover={{ scale: 1.06, y: -1 }}
-                    whileTap={{ scale: 0.97 }}
-                    className="relative snap-start shrink-0 group"
-                  >
-                    {/* Glow backdrop */}
-                    <div
-                      className="absolute -inset-1 rounded-2xl opacity-0 group-hover:opacity-40 blur-md transition-opacity duration-300"
-                      style={{ backgroundColor: tag.color }}
-                    />
-                    {/* Active ring glow */}
-                    {activeTagKey === tag.key && (
-                      <motion.div
-                        layoutId="activeTagGlow"
-                        className="absolute -inset-1.5 rounded-2xl blur-md"
-                        style={{ backgroundColor: tag.color, opacity: 0.35 }}
-                        transition={{ type: 'spring', stiffness: 350, damping: 30 }}
-                      />
-                    )}
-                    {/* Button body */}
-                    <div
-                      className={`relative flex items-center gap-1.5 px-4 py-2 rounded-2xl text-[12px] font-semibold backdrop-blur-sm border transition-all duration-200 ${
-                        activeTagKey === tag.key ? 'border-transparent shadow-lg' : 'border-white/10 dark:border-white/10 bg-white/5 dark:bg-white/5 hover:border-white/20'
-                      }`}
-                      style={activeTagKey === tag.key ? {
-                        backgroundColor: tag.color + 'dd',
-                        color: tag.textColor,
-                        borderColor: tag.color,
-                        boxShadow: `0 4px 20px ${tag.color}55, 0 0 40px ${tag.color}22`
-                      } : {
-                        backgroundColor: tag.color + '15',
-                        color: tag.textColor,
-                        borderColor: tag.color + '30',
-                      }}
+                {allTags.map((tag, idx) => {
+                  const isSelected = selectedTags.some(t => t.key === tag.key)
+                  return (
+                    <motion.button
+                      key={tag.key}
+                      onClick={() => handleTagToggle({ key: tag.key, text: tag.text, color: tag.color })}
+                      initial={{ opacity: 0, y: 12, scale: 0.9 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      transition={{ delay: idx * 0.05, type: 'spring', stiffness: 400, damping: 25 }}
+                      whileHover={{ scale: 1.06, y: -1 }}
+                      whileTap={{ scale: 0.97 }}
+                      className="relative snap-start shrink-0 group"
                     >
-                      <span
-                        className="w-2 h-2 rounded-full shrink-0"
-                        style={{
-                          backgroundColor: activeTagKey === tag.key ? tag.textColor : tag.color,
-                          boxShadow: activeTagKey === tag.key ? `0 0 6px ${tag.textColor}` : `0 0 6px ${tag.color}`
-                        }}
+                      {/* Glow backdrop */}
+                      <div
+                        className="absolute -inset-1 rounded-2xl opacity-0 group-hover:opacity-40 blur-md transition-opacity duration-300"
+                        style={{ backgroundColor: tag.color }}
                       />
-                      <span>{tag.text}</span>
-                      <span
-                        className="ml-0.5 text-[10px] font-bold px-1.5 py-0 rounded-lg"
-                        style={{
-                          backgroundColor: activeTagKey === tag.key ? tag.textColor + '25' : tag.color + '20',
+                      {/* Active ring glow */}
+                      {isSelected && (
+                        <motion.div
+                          layoutId={`tagGlow-${tag.key}`}
+                          className="absolute -inset-1.5 rounded-2xl blur-md"
+                          style={{ backgroundColor: tag.color, opacity: 0.35 }}
+                          transition={{ type: 'spring', stiffness: 350, damping: 30 }}
+                        />
+                      )}
+                      {/* Button body */}
+                      <div
+                        className={`relative flex items-center gap-1.5 px-4 py-2 rounded-2xl text-[12px] font-semibold backdrop-blur-sm border transition-all duration-200 ${
+                          isSelected ? 'border-transparent shadow-lg' : 'border-white/10 dark:border-white/10 bg-white/5 dark:bg-white/5 hover:border-white/20'
+                        }`}
+                        style={isSelected ? {
+                          backgroundColor: tag.color + 'dd',
                           color: tag.textColor,
+                          borderColor: tag.color,
+                          boxShadow: `0 4px 20px ${tag.color}55, 0 0 40px ${tag.color}22`
+                        } : {
+                          backgroundColor: tag.color + '15',
+                          color: tag.textColor,
+                          borderColor: tag.color + '30',
                         }}
                       >
-                        {tag.count}
-                      </span>
-                    </div>
-                  </motion.button>
-                ))}
+                        <span
+                          className="w-2 h-2 rounded-full shrink-0"
+                          style={{
+                            backgroundColor: isSelected ? tag.textColor : tag.color,
+                            boxShadow: isSelected ? `0 0 6px ${tag.textColor}` : `0 0 6px ${tag.color}`
+                          }}
+                        />
+                        <span>{tag.text}</span>
+                        <span
+                          className="ml-0.5 text-[10px] font-bold px-1.5 py-0 rounded-lg"
+                          style={{
+                            backgroundColor: isSelected ? tag.textColor + '25' : tag.color + '20',
+                            color: tag.textColor,
+                          }}
+                        >
+                          {tag.count}
+                        </span>
+                      </div>
+                    </motion.button>
+                  )
+                })}
               </div>
-              {/* Fade edges */}
-              <div className="absolute left-0 top-0 bottom-2 w-6 bg-gradient-to-r from-background to-transparent pointer-events-none" />
-              <div className="absolute right-0 top-0 bottom-2 w-6 bg-gradient-to-l from-background to-transparent pointer-events-none" />
+              {/* Правая стрелка — только десктоп */}
+              <button
+                onClick={() => scrollTags('right')}
+                className="hidden sm:flex absolute right-0 top-1/2 -translate-y-1/2 z-20 w-7 h-7 rounded-full glass items-center justify-center hover:bg-white/10 transition-colors shrink-0"
+                aria-label="Прокрутить вправо"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+              {/* Fade edges (не перекрываем стрелки на десктопе) */}
+              <div className="sm:hidden absolute left-0 top-0 bottom-2 w-6 bg-gradient-to-r from-background to-transparent pointer-events-none" />
+              <div className="sm:hidden absolute right-0 top-0 bottom-2 w-6 bg-gradient-to-l from-background to-transparent pointer-events-none" />
             </div>
           ) : (
             <p className="text-xs text-muted-foreground/50">Нет статусов</p>
@@ -896,28 +975,31 @@ function SearchView() {
       {/* Tag search results */}
       {tagSearchResults && (
         <motion.div
-          key={activeTagKey}
+          key={selectedTags.map(t => t.key).join(',')}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           className="mt-5 space-y-3"
         >
-          {/* Header with status pill + close */}
-          <div className="flex items-center justify-between px-1">
-            <div className="flex items-center gap-2.5">
-              <motion.div
-                layoutId="activeResultPill"
-                className="flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold"
-                style={{
-                  backgroundColor: activeTagColor + '22',
-                  color: activeTagColor,
-                  border: `1px solid ${activeTagColor}44`,
-                }}
-                transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-              >
-                <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: activeTagColor, boxShadow: `0 0 6px ${activeTagColor}` }} />
-                {activeTagText}
-              </motion.div>
+          {/* Header with selected tags pills + close */}
+          <div className="flex items-center justify-between px-1 flex-wrap gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              {selectedTags.map(tag => (
+                <motion.div
+                  key={tag.key}
+                  layoutId={`resultPill-${tag.key}`}
+                  className="flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold"
+                  style={{
+                    backgroundColor: tag.color + '22',
+                    color: tag.color,
+                    border: `1px solid ${tag.color}44`,
+                  }}
+                  transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+                >
+                  <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: tag.color, boxShadow: `0 0 6px ${tag.color}` }} />
+                  {tag.text}
+                </motion.div>
+              ))}
               <span className="text-[11px] text-muted-foreground font-medium">{tagSearchTotal} результатов</span>
             </div>
             <button
@@ -940,23 +1022,23 @@ function SearchView() {
                 whileHover={{ scale: 1.01, x: 2 }}
                 className="relative rounded-2xl border bg-card/50 backdrop-blur-sm overflow-hidden cursor-pointer group"
                 style={{
-                  borderColor: activeTagColor + '18',
+                  borderColor: (scammer.statusColor || '#3b82f6') + '18',
                   boxShadow: `0 1px 3px rgba(0,0,0,0.08)`,
                 }}
                 onClick={() => { setSelectedScammer(scammer); recordView(scammer.id) }}
               >
-                {/* Accent bar on the left */}
+                {/* Accent bar on the left — цвет статуса конкретного скамера */}
                 <div className="flex">
                   <div
                     className="w-1 shrink-0"
-                    style={{ backgroundColor: activeTagColor, opacity: 0.5 }}
+                    style={{ backgroundColor: scammer.statusColor || '#3b82f6', opacity: 0.5 }}
                   />
                   <div className="flex-1 p-3.5 pl-3">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-3 min-w-0 flex-1">
                         <div
                           className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 text-white font-bold text-sm"
-                          style={{ backgroundColor: activeTagColor + '30', color: activeTagColor }}
+                          style={{ backgroundColor: (scammer.statusColor || '#3b82f6') + '30', color: scammer.statusColor || '#3b82f6' }}
                         >
                           {scammer.name.charAt(0).toUpperCase()}
                         </div>
@@ -970,12 +1052,9 @@ function SearchView() {
                       </div>
                       <div className="flex items-center gap-2 shrink-0 ml-2">
                         <StatusBadge status={scammer.statusLabel || scammer.status} color={scammer.statusColor} textColor={scammer.statusTextColor} size="sm" />
+                        <RatingBadge likes={scammer.likeCount || 0} dislikes={scammer.dislikeCount || 0} size="sm" />
                         <ChevronRight className="w-4 h-4 text-muted-foreground/50 group-hover:text-foreground group-hover:translate-x-0.5 transition-all" />
                       </div>
-                    </div>
-                    {/* Rating badge — справа снизу */}
-                    <div className="flex justify-end mt-2.5">
-                      <RatingBadge likes={scammer.likeCount || 0} dislikes={scammer.dislikeCount || 0} size="sm" />
                     </div>
                   </div>
                 </div>
@@ -990,26 +1069,25 @@ function SearchView() {
                 whileHover={{ scale: 1.08 }}
                 whileTap={{ scale: 0.95 }}
                 disabled={tagSearchPage <= 1}
-                onClick={() => handleTagSearch(activeTagKey!, activeTagText!, tagSearchPage - 1)}
-                className="w-8 h-8 rounded-xl flex items-center justify-center border disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                style={{ borderColor: activeTagColor + '30', color: activeTagColor }}
+                onClick={() => fetchTagResults(selectedTags, tagSearchPage - 1)}
+                className="w-8 h-8 rounded-xl flex items-center justify-center border border-border disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-foreground"
               >
                 <ChevronLeft className="w-4 h-4" />
               </motion.button>
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-1.5 flex-wrap justify-center max-w-[280px]">
                 {Array.from({ length: tagSearchTotalPages }, (_, idx) => idx + 1).map(p => (
                   <motion.button
                     key={p}
                     whileHover={{ scale: 1.1 }}
                     whileTap={{ scale: 0.9 }}
-                    onClick={() => handleTagSearch(activeTagKey!, activeTagText!, p)}
+                    onClick={() => fetchTagResults(selectedTags, p)}
                     className="w-7 h-7 rounded-lg flex items-center justify-center text-[11px] font-bold transition-all"
                     style={p === tagSearchPage ? {
-                      backgroundColor: activeTagColor,
+                      backgroundColor: 'var(--primary)',
                       color: '#fff',
-                      boxShadow: `0 2px 10px ${activeTagColor}55`,
+                      boxShadow: `0 2px 10px var(--primary)55`,
                     } : {
-                      color: activeTagColor + '88',
+                      color: 'var(--muted-foreground)',
                     }}
                   >
                     {p}
@@ -1020,9 +1098,8 @@ function SearchView() {
                 whileHover={{ scale: 1.08 }}
                 whileTap={{ scale: 0.95 }}
                 disabled={tagSearchPage >= tagSearchTotalPages}
-                onClick={() => handleTagSearch(activeTagKey!, activeTagText!, tagSearchPage + 1)}
-                className="w-8 h-8 rounded-xl flex items-center justify-center border disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                style={{ borderColor: activeTagColor + '30', color: activeTagColor }}
+                onClick={() => fetchTagResults(selectedTags, tagSearchPage + 1)}
+                className="w-8 h-8 rounded-xl flex items-center justify-center border border-border disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-foreground"
               >
                 <ChevronRight className="w-4 h-4" />
               </motion.button>
@@ -1301,7 +1378,7 @@ function Top10View() {
                       }}>
                         <span className="text-sm">⚡</span>
                         <span className="text-sm font-bold bg-gradient-to-r from-purple-400 to-blue-400 bg-clip-text text-transparent">
-                          {u.exp.toLocaleString('ru-RU')}
+                          {(u.exp || 0).toLocaleString('ru-RU')}
                         </span>
                       </span>
                     </div>
@@ -1332,7 +1409,7 @@ function Top10View() {
                 >
                   <div
                     onClick={() => { setSelectedScammer(item); recordView(item.id) }}
-                    className="relative rounded-2xl border p-4 cursor-pointer hover:-translate-y-0.5 hover:shadow-lg transition-all duration-300"
+                    className="rounded-2xl border p-4 cursor-pointer hover:-translate-y-0.5 hover:shadow-lg transition-all duration-300"
                     style={statusBgStyle(item.statusColor)}
                   >
                     <div className="flex items-center gap-3">
@@ -1367,11 +1444,11 @@ function Top10View() {
                         <p className="font-semibold truncate">{item.name}</p>
                         <p className="text-xs text-muted-foreground">{item.totalSearches} поисков</p>
                       </div>
-                      <StatusBadge status={item.statusLabel || item.status} color={item.statusColor} textColor={item.statusTextColor} />
-                    </div>
-                    {/* Rating badge — справа снизу */}
-                    <div className="absolute bottom-3 right-3">
-                      <RatingBadge likes={item.likeCount || 0} dislikes={item.dislikeCount || 0} size="sm" />
+                      {/* Статус и рейтинг рядом в одной flex-строке — не наползают друг на друга */}
+                      <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                        <StatusBadge status={item.statusLabel || item.status} color={item.statusColor} textColor={item.statusTextColor} />
+                        <RatingBadge likes={item.likeCount || 0} dislikes={item.dislikeCount || 0} size="sm" />
+                      </div>
                     </div>
                   </div>
                 </motion.div>
@@ -2094,20 +2171,25 @@ function ScamerDetailModal({ scammer, onClose }: { scammer: any; onClose: () => 
                 <>
                 <div className="space-y-2 max-h-60 overflow-y-auto">
                   {comments.map((comment) => {
-                    const isOwner = comment.user.id === currentUserId
+                    // comment.user может быть null, если автор удалён (Comment.userId required,
+                    // но при ручном удалении юзера через админку с каскадом комментарии удаляются;
+                    // однако при баге или импорте из старой БД могут остаться orphan-комментарии).
+                    // Guard от TypeError — иначе весь список падает.
+                    const commentUser = comment.user || { id: '', username: '[удалён]', image: '' }
+                    const isOwner = commentUser.id === currentUserId && commentUser.id !== ''
                     const isAdmin = sessionUser?.role === 'admin'
                     return (
                       <div key={comment.id} className="glass rounded-xl p-3">
                         <div className="flex items-center justify-between mb-1">
                           <div className="flex items-center gap-2 min-w-0">
                             <Avatar className="h-6 w-6 shrink-0">
-                              {comment.user.image && <AvatarImage src={comment.user.image} alt={comment.user.username} />}
+                              {commentUser.image && <AvatarImage src={commentUser.image} alt={commentUser.username} />}
                               <AvatarFallback className="bg-blue-500/20 dark:bg-blue-500/30 text-blue-600 dark:text-blue-300 text-[10px] font-bold">
-                                {comment.user.username.charAt(0).toUpperCase()}
+                                {commentUser.username.charAt(0).toUpperCase()}
                               </AvatarFallback>
                             </Avatar>
-                            <span className="text-xs font-medium truncate">{comment.user.username}</span>
-                            <UserTagsBadge userId={comment.user.id} size="sm" />
+                            <span className="text-xs font-medium truncate">{commentUser.username}</span>
+                            {commentUser.id && <UserTagsBadge userId={commentUser.id} size="sm" />}
                           </div>
                           <div className="flex items-center gap-2 shrink-0 ml-2">
                             <span className="text-[10px] text-muted-foreground">
