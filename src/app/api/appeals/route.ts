@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
+import { getClientIp, isIpBanned } from '@/lib/ban-check'
 
 // POST: submit an appeal for a scammer
 export async function POST(req: NextRequest) {
@@ -9,6 +10,11 @@ export async function POST(req: NextRequest) {
     const session = await getServerSession(authOptions)
     const sessionUser = session?.user as { userId?: string; id?: string; role?: string; banned?: boolean } | undefined
     const userId = sessionUser?.userId || sessionUser?.id || null
+
+    // Проверка бана по IP — заблокированный IP не может подавать апелляции
+    if (await isIpBanned(getClientIp(req))) {
+      return NextResponse.json({ error: 'Ваш IP заблокирован' }, { status: 403 })
+    }
 
     const { scammerId, proofLink, description } = await req.json()
 
