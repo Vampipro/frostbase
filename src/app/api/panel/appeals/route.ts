@@ -86,16 +86,31 @@ export async function PUT(req: NextRequest) {
     }
 
     if (action === 'accept') {
-      // Accept: delete scammer from DB entirely
-      await db.appeal.update({
-        where: { id: appealId },
-        data: { status: 'accepted' },
-      })
+      // Accept: удалить скамера из БД целиком.
+      // ВАЖНО: Comment и Vote имеют required FK на Scammer без onDelete (по умолчанию Restrict),
+      // поэтому scammer.delete упадёт, если у скамера есть хоть один комментарий или голос.
+      // Решение: в одной транзакции сначала чистим все зависимые записи, потом удаляем скамера.
+      // Appeal тоже привязана к scammer через onDelete: Cascade и будет удалена — это OK,
+      // т.к. объект апелляции (скамер) больше не существует.
+      const scammerName = appeal.scammer?.name || 'Неизвестно'
+      const scammerId = appeal.scammerId
 
-      // Delete scammer (cascade will handle related records)
-      await db.scammer.delete({ where: { id: appeal.scammerId } })
+      try {
+        await db.$transaction([
+          db.comment.deleteMany({ where: { scammerId } }),
+          db.vote.deleteMany({ where: { scammerId } }),
+          db.searchLog.deleteMany({ where: { scammerId } }),
+          db.submission.updateMany({ where: { scammerId }, data: { scammerId: null } }),
+          db.scammerNameHistory.deleteMany({ where: { scammerId } }),
+          db.appeal.deleteMany({ where: { scammerId } }),
+          db.scammer.delete({ where: { id: scammerId } }),
+        ])
+      } catch (txError) {
+        console.error('Appeal accept transaction error:', txError)
+        return NextResponse.json({ error: 'Не удалось удалить скамера — попробуйте ещё раз' }, { status: 500 })
+      }
 
-      return NextResponse.json({ message: `Скамер "${appeal.scammer.name}" удалён из базы` })
+      return NextResponse.json({ message: `Скамер "${scammerName}" удалён из базы` })
     }
 
     if (action === 'reject') {
