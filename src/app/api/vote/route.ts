@@ -2,14 +2,13 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
+import { getClientIp, isIpBanned } from '@/lib/ban-check'
 
 const VALID_TYPES = ['like', 'neutral', 'dislike'] as const
 
 function getVoterId(req: NextRequest, userId?: string): string {
   if (userId) return `user:${userId}`
-  const forwarded = req.headers.get('x-forwarded-for')
-  const ip = forwarded ? forwarded.split(',')[0].trim() : req.headers.get('x-real-ip') || 'unknown'
-  return `ip:${ip}`
+  return `ip:${getClientIp(req)}`
 }
 
 async function getUserId(): Promise<string | undefined> {
@@ -46,71 +45,98 @@ export async function POST(req: NextRequest) {
 
     const voterId = getVoterId(req, userId)
 
-    const scammer = await db.scammer.findUnique({ where: { id: scammerId } })
-    if (!scammer) {
-      return NextResponse.json({ error: 'Скамер не найден' }, { status: 404 })
+    // Проверка бана по IP — заблокированный IP не может голосовать
+    if (await isIpBanned(getClientIp(req))) {
+      return NextResponse.json({ error: 'Ваш IP заблокирован' }, { status: 403 })
     }
 
-    const existingVote = await db.vote.findUnique({
-      where: { scammerId_voterId: { scammerId, voterId } },
-    })
+    // Проверка banned — забаненный не может голосовать
+    if (userId) {
+      const user = await db.user.findUnique({ where: { id: userId }, select: { role: true } })
+      if (!user || user.role === 'banned') {
+        return NextResponse.json({ error: 'Вы заблокированы' }, { status: 403 })
+      }
+    }
 
-    if (existingVote) {
-      if (existingVote.voteType === voteType) {
-        // Toggle off
-        const field = getCountField(voteType)
-        await db.vote.delete({ where: { id: existingVote.id } })
-        await db.scammer.update({
-          where: { id: scammerId },
-          data: field ? { [field]: { decrement: 1 } } : {},
-        })
-        const updated = await db.scammer.findUnique({ where: { id: scammerId } })
-        return NextResponse.json({
-          voted: false,
-          voteType: null,
-          likeCount: Math.max(0, updated?.likeCount || 0),
-          neutralCount: Math.max(0, updated?.neutralCount || 0),
-          dislikeCount: Math.max(0, updated?.dislikeCount || 0),
-        })
-      } else {
-        // Switch vote
-        const oldField = getCountField(existingVote.voteType)
-        const newField = getCountField(voteType)
-        const updateData: Record<string, any> = {}
-        if (oldField) updateData[oldField] = { decrement: 1 }
-        if (newField) updateData[newField] = { increment: 1 }
+    // Вся логика в одной интерактивной транзакции — закрывает race condition
+    // при двойном клике или параллельных запросах. decrement через GREATEST(..., 0)
+    // гарантирует, что count не уйдёт в минус даже при рассинхроне.
+    const result = await db.$transaction(async (tx) => {
+      const scammer = await tx.scammer.findUnique({ where: { id: scammerId } })
+      if (!scammer) {
+        return { error: { status: 404, message: 'Скамер не найден' } }
+      }
 
-        await db.vote.update({ where: { id: existingVote.id }, data: { voteType } })
-        await db.scammer.update({
-          where: { id: scammerId },
-          data: updateData,
-        })
-        const updated = await db.scammer.findUnique({ where: { id: scammerId } })
-        return NextResponse.json({
+      const existingVote = await tx.vote.findUnique({
+        where: { scammerId_voterId: { scammerId, voterId } },
+      })
+
+      if (existingVote) {
+        if (existingVote.voteType === voteType) {
+          // Toggle off — GREATEST защищает от ухода в минус
+          const field = getCountField(voteType)
+          await tx.vote.delete({ where: { id: existingVote.id } })
+          if (field) {
+            await tx.$executeRaw`UPDATE "Scammer" SET "${field}" = GREATEST("${field}" - 1, 0) WHERE id = ${scammerId}`
+          }
+          const updated = await tx.scammer.findUnique({ where: { id: scammerId } })
+          return {
+            data: {
+              voted: false,
+              voteType: null,
+              likeCount: Math.max(0, updated?.likeCount || 0),
+              neutralCount: Math.max(0, updated?.neutralCount || 0),
+              dislikeCount: Math.max(0, updated?.dislikeCount || 0),
+            },
+          }
+        } else {
+          // Switch vote
+          const oldField = getCountField(existingVote.voteType)
+          const newField = getCountField(voteType)
+
+          await tx.vote.update({ where: { id: existingVote.id }, data: { voteType } })
+          if (oldField) {
+            await tx.$executeRaw`UPDATE "Scammer" SET "${oldField}" = GREATEST("${oldField}" - 1, 0) WHERE id = ${scammerId}`
+          }
+          if (newField) {
+            await tx.$executeRaw`UPDATE "Scammer" SET "${newField}" = "${newField}" + 1 WHERE id = ${scammerId}`
+          }
+          const updated = await tx.scammer.findUnique({ where: { id: scammerId } })
+          return {
+            data: {
+              voted: true,
+              voteType,
+              likeCount: updated?.likeCount || 0,
+              neutralCount: updated?.neutralCount || 0,
+              dislikeCount: updated?.dislikeCount || 0,
+            },
+          }
+        }
+      }
+
+      // New vote
+      const field = getCountField(voteType)
+      await tx.vote.create({ data: { scammerId, voteType, voterId } })
+      if (field) {
+        await tx.$executeRaw`UPDATE "Scammer" SET "${field}" = "${field}" + 1 WHERE id = ${scammerId}`
+      }
+      const updated = await tx.scammer.findUnique({ where: { id: scammerId } })
+      return {
+        data: {
           voted: true,
           voteType,
           likeCount: updated?.likeCount || 0,
           neutralCount: updated?.neutralCount || 0,
           dislikeCount: updated?.dislikeCount || 0,
-        })
+        },
       }
+    })
+
+    if ('error' in result) {
+      return NextResponse.json({ error: result.error.message }, { status: result.error.status })
     }
 
-    // New vote
-    const field = getCountField(voteType)
-    await db.vote.create({ data: { scammerId, voteType, voterId } })
-    await db.scammer.update({
-      where: { id: scammerId },
-      data: field ? { [field]: { increment: 1 } } : {},
-    })
-    const updated = await db.scammer.findUnique({ where: { id: scammerId } })
-    return NextResponse.json({
-      voted: true,
-      voteType,
-      likeCount: updated?.likeCount || 0,
-      neutralCount: updated?.neutralCount || 0,
-      dislikeCount: updated?.dislikeCount || 0,
-    })
+    return NextResponse.json(result.data)
   } catch (error) {
     console.error('Vote error:', error)
     return NextResponse.json({ error: 'Ошибка голосования' }, { status: 500 })
