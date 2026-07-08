@@ -19,24 +19,55 @@ export async function POST(req: NextRequest) {
 
     const { userId, amount } = await req.json()
 
-    if (!userId || amount === undefined || amount === 0) {
-      return NextResponse.json({ error: 'Укажите userId и amount (положительное или отрицательное)' }, { status: 400 })
+    if (!userId || typeof userId !== 'string') {
+      return NextResponse.json({ error: 'Укажите userId' }, { status: 400 })
     }
 
-    const targetUser = await db.user.findUnique({ where: { id: userId } })
+    // Жёсткая валидация amount: должно быть целым числом, не 0
+    const numAmount = Number(amount)
+    if (!Number.isInteger(numAmount) || numAmount === 0) {
+      return NextResponse.json(
+        { error: 'Укажите amount — целое число, не равное 0' },
+        { status: 400 }
+      )
+    }
+
+    const targetUser = await db.user.findUnique({
+      where: { id: userId },
+      select: { id: true, exp: true, role: true },
+    })
     if (!targetUser) {
       return NextResponse.json({ error: 'Пользователь не найден' }, { status: 404 })
     }
 
-    const newExp = Math.max(0, targetUser.exp + amount)
-    await db.user.update({
+    if (targetUser.role === 'banned') {
+      return NextResponse.json(
+        { error: 'Пользователь заблокирован — EXP недоступен' },
+        { status: 400 }
+      )
+    }
+
+    // Атомарный increment; если уйдёт в минус — поднимаем до 0 отдельным апдейтом.
+    // Race-safe: increment в одном SQL-запросе, без read-then-write.
+    const updated = await db.user.update({
       where: { id: userId },
-      data: { exp: newExp },
+      data: { exp: { increment: numAmount } },
+      select: { exp: true },
     })
 
+    let finalExp = updated.exp
+    if (finalExp < 0) {
+      const clamped = await db.user.update({
+        where: { id: userId },
+        data: { exp: 0 },
+        select: { exp: true },
+      })
+      finalExp = clamped.exp
+    }
+
     return NextResponse.json({
-      message: amount > 0 ? `+${amount} EXP` : `${amount} EXP`,
-      newExp,
+      message: numAmount > 0 ? `+${numAmount} EXP` : `${numAmount} EXP`,
+      newExp: finalExp,
     })
   } catch (error) {
     console.error('User EXP POST error:', error)
