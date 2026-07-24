@@ -5,7 +5,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 
 // Виправлено імпорт на відносний шлях, щоб уникнути помилки Module not found
-import { getClientIp, isIpBanned } from '../../lib/ban-check'
+import { getClientIp, isIpBanned } from '@/lib/ban-check'
 
 const VALID_TYPES = ['like', 'neutral', 'dislike'] as const
 
