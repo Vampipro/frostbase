@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { Prisma } from '@prisma/client'
 import { db } from '@/lib/db'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
-import { getClientIp, isIpBanned } from '@/lib/ban-check'
+
+// Виправлено імпорт на відносний шлях, щоб уникнути помилки Module not found
+import { getClientIp, isIpBanned } from '../../lib/ban-check'
 
 const VALID_TYPES = ['like', 'neutral', 'dislike'] as const
 
@@ -37,34 +40,31 @@ export async function POST(req: NextRequest) {
     const { scammerId, voteType } = await req.json()
 
     if (!scammerId || typeof scammerId !== 'string') {
-      return NextResponse.json({ error: 'Укажите scammerId' }, { status: 400 })
+      return NextResponse.json({ error: 'Вкажіть scammerId' }, { status: 400 })
     }
     if (!VALID_TYPES.includes(voteType)) {
-      return NextResponse.json({ error: 'Неверный тип голоса' }, { status: 400 })
+      return NextResponse.json({ error: 'Невірний тип голосу' }, { status: 400 })
     }
 
     const voterId = getVoterId(req, userId)
 
-    // Проверка бана по IP — заблокированный IP не может голосовать
+    // Перевірка бана по IP
     if (await isIpBanned(getClientIp(req))) {
-      return NextResponse.json({ error: 'Ваш IP заблокирован' }, { status: 403 })
+      return NextResponse.json({ error: 'Ваш IP заблоковано' }, { status: 403 })
     }
 
-    // Проверка banned — забаненный не может голосовать
+    // Перевірка бана акаунта
     if (userId) {
       const user = await db.user.findUnique({ where: { id: userId }, select: { role: true } })
       if (!user || user.role === 'banned') {
-        return NextResponse.json({ error: 'Вы заблокированы' }, { status: 403 })
+        return NextResponse.json({ error: 'Ви заблоковані' }, { status: 403 })
       }
     }
 
-    // Вся логика в одной интерактивной транзакции — закрывает race condition
-    // при двойном клике или параллельных запросах. decrement через GREATEST(..., 0)
-    // гарантирует, что count не уйдёт в минус даже при рассинхроне.
     const result = await db.$transaction(async (tx) => {
       const scammer = await tx.scammer.findUnique({ where: { id: scammerId } })
       if (!scammer) {
-        return { error: { status: 404, message: 'Скамер не найден' } }
+        return { error: { status: 404, message: 'Скамера не знайдено' } }
       }
 
       const existingVote = await tx.vote.findUnique({
@@ -73,11 +73,11 @@ export async function POST(req: NextRequest) {
 
       if (existingVote) {
         if (existingVote.voteType === voteType) {
-          // Toggle off — GREATEST защищает от ухода в минус
+          // Toggle off (скасування голосу)
           const field = getCountField(voteType)
           await tx.vote.delete({ where: { id: existingVote.id } })
           if (field) {
-            await tx.$executeRaw`UPDATE "Scammer" SET "${field}" = GREATEST("${field}" - 1, 0) WHERE id = ${scammerId}`
+            await tx.$executeRaw`UPDATE "Scammer" SET "${Prisma.raw(field)}" = GREATEST("${Prisma.raw(field)}" - 1, 0) WHERE id = ${scammerId}`
           }
           const updated = await tx.scammer.findUnique({ where: { id: scammerId } })
           return {
@@ -90,16 +90,16 @@ export async function POST(req: NextRequest) {
             },
           }
         } else {
-          // Switch vote
+          // Switch vote (зміна голосу)
           const oldField = getCountField(existingVote.voteType)
           const newField = getCountField(voteType)
 
           await tx.vote.update({ where: { id: existingVote.id }, data: { voteType } })
           if (oldField) {
-            await tx.$executeRaw`UPDATE "Scammer" SET "${oldField}" = GREATEST("${oldField}" - 1, 0) WHERE id = ${scammerId}`
+            await tx.$executeRaw`UPDATE "Scammer" SET "${Prisma.raw(oldField)}" = GREATEST("${Prisma.raw(oldField)}" - 1, 0) WHERE id = ${scammerId}`
           }
           if (newField) {
-            await tx.$executeRaw`UPDATE "Scammer" SET "${newField}" = "${newField}" + 1 WHERE id = ${scammerId}`
+            await tx.$executeRaw`UPDATE "Scammer" SET "${Prisma.raw(newField)}" = "${Prisma.raw(newField)}" + 1 WHERE id = ${scammerId}`
           }
           const updated = await tx.scammer.findUnique({ where: { id: scammerId } })
           return {
@@ -114,11 +114,11 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // New vote
+      // New vote (новий голос)
       const field = getCountField(voteType)
       await tx.vote.create({ data: { scammerId, voteType, voterId } })
       if (field) {
-        await tx.$executeRaw`UPDATE "Scammer" SET "${field}" = "${field}" + 1 WHERE id = ${scammerId}`
+        await tx.$executeRaw`UPDATE "Scammer" SET "${Prisma.raw(field)}" = "${Prisma.raw(field)}" + 1 WHERE id = ${scammerId}`
       }
       const updated = await tx.scammer.findUnique({ where: { id: scammerId } })
       return {
@@ -139,7 +139,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(result.data)
   } catch (error) {
     console.error('Vote error:', error)
-    return NextResponse.json({ error: 'Ошибка голосования' }, { status: 500 })
+    return NextResponse.json({ error: 'Помилка голосування' }, { status: 500 })
   }
 }
 
@@ -149,7 +149,7 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url)
     const scammerId = searchParams.get('scammerId')
     if (!scammerId) {
-      return NextResponse.json({ error: 'Укажите scammerId' }, { status: 400 })
+      return NextResponse.json({ error: 'Вкажіть scammerId' }, { status: 400 })
     }
 
     const userId = await getUserId()
@@ -172,6 +172,6 @@ export async function GET(req: NextRequest) {
     })
   } catch (error) {
     console.error('Vote check error:', error)
-    return NextResponse.json({ error: 'Ошибка' }, { status: 500 })
+    return NextResponse.json({ error: 'Помилка' }, { status: 500 })
   }
 }
