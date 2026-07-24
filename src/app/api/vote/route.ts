@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { Prisma } from '@prisma/client'
 import { db } from '@/lib/db'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
@@ -42,7 +41,7 @@ export async function POST(req: NextRequest) {
     if (!scammerId || typeof scammerId !== 'string') {
       return NextResponse.json({ error: 'Вкажіть scammerId' }, { status: 400 })
     }
-    if (!VALID_TYPES.includes(voteType)) {
+    if (typeof voteType !== 'string' || !VALID_TYPES.includes(voteType)) {
       return NextResponse.json({ error: 'Невірний тип голосу' }, { status: 400 })
     }
 
@@ -77,7 +76,15 @@ export async function POST(req: NextRequest) {
           const field = getCountField(voteType)
           await tx.vote.delete({ where: { id: existingVote.id } })
           if (field) {
-            await tx.$executeRaw`UPDATE "Scammer" SET "${Prisma.raw(field)}" = GREATEST("${Prisma.raw(field)}" - 1, 0) WHERE id = ${scammerId}`
+            // decrement safely using Prisma's decrement operator, then ensure non-negative
+            const decData: any = {}
+            decData[field] = { decrement: 1 }
+            await tx.scammer.updateMany({ where: { id: scammerId }, data: decData })
+            const fixWhere: any = { id: scammerId }
+            fixWhere[field] = { lt: 0 }
+            const fixData: any = {}
+            fixData[field] = 0
+            await tx.scammer.updateMany({ where: fixWhere, data: fixData })
           }
           const updated = await tx.scammer.findUnique({ where: { id: scammerId } })
           return {
@@ -96,10 +103,19 @@ export async function POST(req: NextRequest) {
 
           await tx.vote.update({ where: { id: existingVote.id }, data: { voteType } })
           if (oldField) {
-            await tx.$executeRaw`UPDATE "Scammer" SET "${Prisma.raw(oldField)}" = GREATEST("${Prisma.raw(oldField)}" - 1, 0) WHERE id = ${scammerId}`
+            const decData: any = {}
+            decData[oldField] = { decrement: 1 }
+            await tx.scammer.updateMany({ where: { id: scammerId }, data: decData })
+            const fixWhere: any = { id: scammerId }
+            fixWhere[oldField] = { lt: 0 }
+            const fixData: any = {}
+            fixData[oldField] = 0
+            await tx.scammer.updateMany({ where: fixWhere, data: fixData })
           }
           if (newField) {
-            await tx.$executeRaw`UPDATE "Scammer" SET "${Prisma.raw(newField)}" = "${Prisma.raw(newField)}" + 1 WHERE id = ${scammerId}`
+            const incData: any = {}
+            incData[newField] = { increment: 1 }
+            await tx.scammer.update({ where: { id: scammerId }, data: incData })
           }
           const updated = await tx.scammer.findUnique({ where: { id: scammerId } })
           return {
@@ -118,7 +134,9 @@ export async function POST(req: NextRequest) {
       const field = getCountField(voteType)
       await tx.vote.create({ data: { scammerId, voteType, voterId } })
       if (field) {
-        await tx.$executeRaw`UPDATE "Scammer" SET "${Prisma.raw(field)}" = "${Prisma.raw(field)}" + 1 WHERE id = ${scammerId}`
+        const incData: any = {}
+        incData[field] = { increment: 1 }
+        await tx.scammer.update({ where: { id: scammerId }, data: incData })
       }
       const updated = await tx.scammer.findUnique({ where: { id: scammerId } })
       return {
