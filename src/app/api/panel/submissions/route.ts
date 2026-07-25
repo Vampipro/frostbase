@@ -63,6 +63,7 @@ export async function GET() {
       statusColor: statusMap[s.status]?.color || '#6b7280',
       statusTextColor: statusMap[s.status]?.textColor || '#ffffff',
       revisionReason: s.revisionReason,
+      proofLink: s.proofLink || '',
       user: s.user,
       guestIp: s.guestIp || '',
       isGuest: !s.userId,
@@ -135,6 +136,7 @@ export async function PUT(req: NextRequest) {
             telegramUserId: (submission as any).telegramUserId || '',
             scamAmount: (submission as any).scamAmount || '',
             scamCurrency: (submission as any).scamCurrency || '',
+            proofLink: submission.proofLink || '',
             createdBy: adminUserId,
           },
         })
@@ -144,7 +146,7 @@ export async function PUT(req: NextRequest) {
           data: { status, scammerId: newScammer.id },
         })
       } else {
-        // Update existing scammer's telegramUserId and amount if empty
+        // Update existing scammer's telegramUserId, amount and proofLink if empty
         const scammerUpdateData: any = {}
         if (existingScammer.telegramUserId === '' && (submission as any).telegramUserId) {
           scammerUpdateData.telegramUserId = (submission as any).telegramUserId
@@ -154,6 +156,9 @@ export async function PUT(req: NextRequest) {
         }
         if (existingScammer.scamCurrency === '' && (submission as any).scamCurrency) {
           scammerUpdateData.scamCurrency = (submission as any).scamCurrency
+        }
+        if (existingScammer.proofLink === '' && submission.proofLink) {
+          scammerUpdateData.proofLink = submission.proofLink
         }
         if (Object.keys(scammerUpdateData).length > 0) {
           await db.scammer.update({
