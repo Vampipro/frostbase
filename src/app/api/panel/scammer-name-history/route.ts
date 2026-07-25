@@ -52,6 +52,83 @@ export async function GET(req: NextRequest) {
   }
 }
 
+// DELETE: delete history entry
+export async function DELETE(req: NextRequest) {
+  try {
+    const user = await checkAdmin()
+    if (!user) {
+      return NextResponse.json({ error: 'Доступ запрещен' }, { status: 403 })
+    }
+
+    const { searchParams } = new URL(req.url)
+    const historyId = searchParams.get('id')
+
+    if (!historyId) {
+      return NextResponse.json({ error: 'Укажите id' }, { status: 400 })
+    }
+
+    const entry = await db.scammerNameHistory.findUnique({
+      where: { id: historyId },
+    })
+
+    if (!entry) {
+      return NextResponse.json({ error: 'Запись не найдена' }, { status: 404 })
+    }
+
+    await db.scammerNameHistory.delete({
+      where: { id: historyId },
+    })
+
+    return NextResponse.json({ message: 'Запись удалена' })
+  } catch (error) {
+    console.error('Name history DELETE error:', error)
+    return NextResponse.json({ error: 'Ошибка' }, { status: 500 })
+  }
+}
+
+// PATCH: edit history entry
+export async function PATCH(req: NextRequest) {
+  try {
+    const user = await checkAdmin()
+    if (!user) {
+      return NextResponse.json({ error: 'Доступ запрещен' }, { status: 403 })
+    }
+
+    const { searchParams } = new URL(req.url)
+    const historyId = searchParams.get('id')
+    const { oldName, newName } = await req.json()
+
+    if (!historyId) {
+      return NextResponse.json({ error: 'Укажите id' }, { status: 400 })
+    }
+
+    if (!oldName || !newName) {
+      return NextResponse.json({ error: 'Оба поля обязательны' }, { status: 400 })
+    }
+
+    const entry = await db.scammerNameHistory.findUnique({
+      where: { id: historyId },
+    })
+
+    if (!entry) {
+      return NextResponse.json({ error: 'Запись не найдена' }, { status: 404 })
+    }
+
+    await db.scammerNameHistory.update({
+      where: { id: historyId },
+      data: {
+        oldName: oldName.trim(),
+        newName: newName.trim(),
+      },
+    })
+
+    return NextResponse.json({ message: 'Запись обновлена' })
+  } catch (error) {
+    console.error('Name history PATCH error:', error)
+    return NextResponse.json({ error: 'Ошибка' }, { status: 500 })
+  }
+}
+
 // POST: rollback to a previous name
 export async function POST(req: NextRequest) {
   try {
