@@ -3,8 +3,9 @@
 import { useState, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { toast } from 'sonner'
-import { X, Loader2, ChevronLeft, ChevronRight, RotateCcw, Clock } from 'lucide-react'
+import { X, Loader2, ChevronLeft, ChevronRight, RotateCcw, Clock, Trash2, Edit3, Save } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 
 interface NameHistoryEntry {
   id: string
@@ -26,6 +27,10 @@ export default function NameHistoryModal({ scammer, onClose, onRollback }: Props
   const [totalPages, setTotalPages] = useState(1)
   const [total, setTotal] = useState(0)
   const [rollbackId, setRollbackId] = useState<string | null>(null)
+  const [deleteId, setDeleteId] = useState<string | null>(null)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editOldName, setEditOldName] = useState('')
+  const [editNewName, setEditNewName] = useState('')
 
   const loadHistory = useCallback(async (scammerId: string, p: number) => {
     setLoading(true)
@@ -75,9 +80,119 @@ export default function NameHistoryModal({ scammer, onClose, onRollback }: Props
     }
   }
 
+  const handleDelete = async (historyId: string) => {
+    if (!confirm('Удалить эту запись истории?')) return
+    setDeleteId(historyId)
+    try {
+      const res = await fetch('/api/panel/scammer-name-history?id=' + historyId, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        toast.error(data.error)
+        return
+      }
+      toast.success('Запись удалена')
+      if (scammer) loadHistory(scammer.id, page)
+    } catch {
+      toast.error('Ошибка')
+    } finally {
+      setDeleteId(null)
+    }
+  }
+
+  const handleEditStart = (entry: NameHistoryEntry) => {
+    setEditingId(entry.id)
+    setEditOldName(entry.oldName)
+    setEditNewName(entry.newName)
+  }
+
+  const handleEditSave = async (historyId: string) => {
+    if (!editOldName.trim() || !editNewName.trim()) {
+      toast.error('Оба поля обязательны')
+      return
+    }
+    try {
+      const res = await fetch('/api/panel/scammer-name-history?id=' + historyId, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ oldName: editOldName.trim(), newName: editNewName.trim() }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        toast.error(data.error)
+        return
+      }
+      toast.success('Запись обновлена')
+      setEditingId(null)
+      if (scammer) loadHistory(scammer.id, page)
+    } catch {
+      toast.error('Ошибка')
+    }
+  }
+
   const goPage = (newPage: number) => {
     setPage(newPage)
     if (scammer) loadHistory(scammer.id, newPage)
+  }
+
+  const renderPaginationButtons = () => {
+    const buttons = []
+    const maxButtons = 5
+    let startPage = Math.max(1, page - Math.floor(maxButtons / 2))
+    let endPage = Math.min(totalPages, startPage + maxButtons - 1)
+    
+    if (endPage - startPage < maxButtons - 1) {
+      startPage = Math.max(1, endPage - maxButtons + 1)
+    }
+
+    // Первая страница
+    if (startPage > 1) {
+      buttons.push(
+        <button key={1} onClick={() => goPage(1)} className="px-2 py-1 rounded text-sm text-green-400 hover:bg-green-500/10">
+          1
+        </button>
+      )
+    }
+
+    // Многоточие
+    if (startPage > 2) {
+      buttons.push(<span key="dots1" className="px-1 text-green-600">...</span>)
+    }
+
+    // Кнопки страниц
+    for (let i = startPage; i <= endPage; i++) {
+      buttons.push(
+        <button
+          key={i}
+          onClick={() => goPage(i)}
+          className={`px-2 py-1 rounded text-sm font-mono ${
+            i === page
+              ? 'bg-green-500/30 text-green-300 border border-green-500/50'
+              : 'text-green-400 hover:bg-green-500/10'
+          }`}
+        >
+          {i}
+        </button>
+      )
+    }
+
+    // Многоточие
+    if (endPage < totalPages - 1) {
+      buttons.push(<span key="dots2" className="px-1 text-green-600">...</span>)
+    }
+
+    // Последняя страница
+    if (endPage < totalPages) {
+      buttons.push(
+        <button key={totalPages} onClick={() => goPage(totalPages)} className="px-2 py-1 rounded text-sm text-green-400 hover:bg-green-500/10">
+          {totalPages}
+        </button>
+      )
+    }
+
+    return buttons
   }
 
   return (
@@ -137,7 +252,57 @@ export default function NameHistoryModal({ scammer, onClose, onRollback }: Props
                 </p>
                 <div className="space-y-2">
                   {history.map(function renderEntry(entry: NameHistoryEntry, i: number) {
-                    const isLoading = rollbackId === entry.id
+                    const isLoading = rollbackId === entry.id || deleteId === entry.id
+                    const isEditing = editingId === entry.id
+                    
+                    if (isEditing) {
+                      return (
+                        <motion.div
+                          key={entry.id}
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          className="glass rounded-xl p-3 border border-yellow-500/20 bg-yellow-500/5"
+                        >
+                          <div className="space-y-2 mb-2">
+                            <div>
+                              <label className="text-[10px] text-yellow-600 font-mono">Старое имя</label>
+                              <Input
+                                value={editOldName}
+                                onChange={(e) => setEditOldName(e.target.value)}
+                                className="h-8 text-xs rounded bg-yellow-500/10 border-yellow-500/20 text-yellow-300"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-[10px] text-yellow-600 font-mono">Новое имя</label>
+                              <Input
+                                value={editNewName}
+                                onChange={(e) => setEditNewName(e.target.value)}
+                                className="h-8 text-xs rounded bg-yellow-500/10 border-yellow-500/20 text-yellow-300"
+                              />
+                            </div>
+                          </div>
+                          <div className="flex gap-2">
+                            <Button
+                              size="sm"
+                              onClick={() => handleEditSave(entry.id)}
+                              className="flex-1 h-7 text-xs bg-yellow-600 hover:bg-yellow-700 rounded"
+                            >
+                              <Save className="w-3 h-3 mr-1" />
+                              Сохранить
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => setEditingId(null)}
+                              className="flex-1 h-7 text-xs border-yellow-500/20 text-yellow-400 rounded"
+                            >
+                              Отмена
+                            </Button>
+                          </div>
+                        </motion.div>
+                      )
+                    }
+
                     return (
                       <motion.div
                         key={entry.id}
@@ -180,21 +345,46 @@ export default function NameHistoryModal({ scammer, onClose, onRollback }: Props
                               </p>
                             </div>
                           </div>
-                          <button
-                            onClick={function doRollback() {
-                              handleRollback(entry.id, entry.oldName)
-                            }}
-                            disabled={isLoading}
-                            className="opacity-0 group-hover:opacity-100 shrink-0 px-3 py-1.5 rounded-lg font-mono text-xs bg-yellow-500/15 text-yellow-400 hover:bg-yellow-500/25 border border-yellow-500/20 transition-all disabled:opacity-40 flex items-center gap-1.5"
-                            title={'Откатить на \u00AB' + entry.oldName + '\u00BB'}
-                          >
-                            {isLoading ? (
-                              <Loader2 className="w-3 h-3 animate-spin" />
-                            ) : (
-                              <RotateCcw className="w-3 h-3" />
-                            )}
-                            <span className="hidden sm:inline">Откат</span>
-                          </button>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button
+                              onClick={function doEdit() {
+                                handleEditStart(entry)
+                              }}
+                              disabled={isLoading}
+                              className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg font-mono text-xs bg-yellow-500/15 text-yellow-400 hover:bg-yellow-500/25 border border-yellow-500/30 disabled:opacity-30 transition-all"
+                              title="Редактировать"
+                            >
+                              <Edit3 className="w-3 h-3" />
+                            </button>
+                            <button
+                              onClick={function doRollback() {
+                                handleRollback(entry.id, entry.oldName)
+                              }}
+                              disabled={isLoading}
+                              className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg font-mono text-xs bg-cyan-500/15 text-cyan-400 hover:bg-cyan-500/25 border border-cyan-500/30 disabled:opacity-30 transition-all"
+                              title={'Откатить на \u00AB' + entry.oldName + '\u00BB'}
+                            >
+                              {rollbackId === entry.id ? (
+                                <Loader2 className="w-3 h-3 animate-spin" />
+                              ) : (
+                                <RotateCcw className="w-3 h-3" />
+                              )}
+                            </button>
+                            <button
+                              onClick={function doDelete() {
+                                handleDelete(entry.id)
+                              }}
+                              disabled={isLoading}
+                              className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg font-mono text-xs bg-red-500/15 text-red-400 hover:bg-red-500/25 border border-red-500/30 disabled:opacity-30 transition-all"
+                              title="Удалить запись"
+                            >
+                              {deleteId === entry.id ? (
+                                <Loader2 className="w-3 h-3 animate-spin" />
+                              ) : (
+                                <Trash2 className="w-3 h-3" />
+                              )}
+                            </button>
+                          </div>
                         </div>
                       </motion.div>
                     )
@@ -203,7 +393,7 @@ export default function NameHistoryModal({ scammer, onClose, onRollback }: Props
 
                 {/* Pagination */}
                 {totalPages > 1 && (
-                  <div className="flex items-center justify-center gap-2 mt-4">
+                  <div className="flex items-center justify-center gap-1 mt-4 flex-wrap">
                     <button
                       onClick={function prevPage() { goPage(Math.max(1, page - 1)) }}
                       disabled={page <= 1}
@@ -211,9 +401,7 @@ export default function NameHistoryModal({ scammer, onClose, onRollback }: Props
                     >
                       <ChevronLeft className="w-4 h-4" />
                     </button>
-                    <span className="font-mono text-xs text-green-500 px-2">
-                      {String(page)} / {String(totalPages)}
-                    </span>
+                    {renderPaginationButtons()}
                     <button
                       onClick={function nextPage() { goPage(Math.min(totalPages, page + 1)) }}
                       disabled={page >= totalPages}
