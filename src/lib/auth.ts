@@ -59,8 +59,9 @@ export const authOptions: NextAuthOptions = {
         token.role = user.role
         token.userId = user.id
         token.image = user.image
+        token.lastRefresh = Math.floor(Date.now() / 1000)
       }
-      // On session update (e.g. after admin role change), re-read role from DB
+      // On explicit session update (e.g. after avatar change), re-read from DB
       if (trigger === 'update' && token.userId) {
         try {
           const freshUser = await db.user.findUnique({
@@ -70,9 +71,37 @@ export const authOptions: NextAuthOptions = {
           if (freshUser) {
             token.role = freshUser.role
             token.image = freshUser.image
+            token.lastRefresh = Math.floor(Date.now() / 1000)
+          } else {
+            // Юзер удалён — инвалидируем токен
+            token.role = 'banned'
           }
         } catch (error) {
           console.error('JWT update error:', error)
+        }
+      }
+      // Периодическое перечитывание role из БД (каждые 60 сек).
+      // Это закрывает баг: забаненный админ сохранял доступ до 30 дней,
+      // потому что role бралась из JWT, а не из БД. Теперь при следующем
+      // запросе после бана role обновится в токене, middleware увидит 'banned'.
+      const nowSec = Math.floor(Date.now() / 1000)
+      const last = (token.lastRefresh as number) || 0
+      if (token.userId && nowSec - last > 60) {
+        try {
+          const freshUser = await db.user.findUnique({
+            where: { id: token.userId as string },
+            select: { role: true, image: true },
+          })
+          if (freshUser) {
+            token.role = freshUser.role
+            token.image = freshUser.image
+          } else {
+            // Юзер удалён — помечаем как забаненного, чтобы middleware отрезал доступ
+            token.role = 'banned'
+          }
+          token.lastRefresh = nowSec
+        } catch (error) {
+          console.error('JWT periodic refresh error:', error)
         }
       }
       return token
@@ -120,5 +149,6 @@ declare module 'next-auth/jwt' {
     role: string
     userId: string
     image?: string
+    lastRefresh?: number
   }
 }
