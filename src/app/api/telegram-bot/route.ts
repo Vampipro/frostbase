@@ -1,51 +1,113 @@
 import { Bot, webhookCallback } from "grammy";
 import { NextRequest, NextResponse } from "next/server";
-// Імпортуй свою базу даних (наприклад, з Neon DB / Prisma / Drizzle)
-// import { db } from "@/lib/db"; 
+// Переконайся, що шлях до твоєї Prisma (або іншої БД) вказано правильно
+import { db } from "@/lib/db"; 
 
-// 1. Ініціалізація бота
-const bot = new Bot(process.env.TELEGRAM_BOT_TOKEN || "");
+const token = process.env.TELEGRAM_BOT_TOKEN;
+if (!token) {
+  throw new Error("TELEGRAM_BOT_TOKEN не задан в Environment Variables");
+}
 
-// 2. Обробка команди /start
+const bot = new Bot(token);
+
+// Команда /start
 bot.command("start", async (ctx) => {
   await ctx.reply(
-    "Привіт! Надішли мені **Telegram ID** або **юзернейм**, щоб перевірити його в базі."
+    "👋 **Приветствую! Я бот для проверки по базе данных.**\n\n" +
+      "Отправь мне **Username** (например, `@username`) или **Telegram ID** (например, `123456789`), и я проверю наличие записи в базе.",
+    { parse_mode: "Markdown" }
   );
 });
 
-// 3. Обробка текстових повідомлень (пошук)
+// Обробка тексту
 bot.on("message:text", async (ctx) => {
   const query = ctx.message.text.trim();
 
-  await ctx.reply(`Шукаю інформацію по: ${query}...`);
+  // Ігноруємо командні запити типу /help, /start
+  if (query.startsWith("/")) return;
+
+  // Визначаємо, чи це Telegram ID (тільки цифри), чи Username
+  const isId = /^\d+$/.test(query);
+  const cleanUsername = query.replace(/^@/, "").trim();
 
   try {
-    // 💡 ТУТ ТВІЙ ПОШУК У БАЗІ NEON:
-    // Наприклад:
-    // const result = await db.scammer.findFirst({ where: { tgId: query } });
+    let record = null;
 
-    // Тимчасова імітація знаходження:
-    const found = false; // заміни на реальну перевірку
-
-    if (found) {
-      await ctx.reply(`⚠️ **УВАГА! Знайдено в базі!**\n\nДеталі про скамера...`);
+    if (isId) {
+      // Пошук за Telegram ID
+      record = await db.scammer.findFirst({
+        where: {
+          telegramId: query,
+        },
+      });
     } else {
-      await ctx.reply(`✅ Запиту "${query}" у базі не знайдено.`);
+      // Пошук за Юзернеймом (без урахування регістру)
+      record = await db.scammer.findFirst({
+        where: {
+          username: {
+            equals: cleanUsername,
+            mode: "insensitive",
+          },
+        },
+      });
     }
+
+    // Якщо нічого не знайдено
+    if (!record) {
+      await ctx.reply(
+        "❌ **Ничего не найдено.**\nПользователь с такими данными отсутствует в базе.",
+        { parse_mode: "Markdown" }
+      );
+      return;
+    }
+
+    // Збільшуємо лічильник пошуків на +1
+    const updatedRecord = await db.scammer.update({
+      where: { id: record.id },
+      data: {
+        searchCount: { increment: 1 },
+      },
+    });
+
+    // Форматуємо дату створення
+    const formattedDate = new Date(updatedRecord.createdAt).toLocaleDateString("ru-RU", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+
+    // Формуємо відповідь
+    const responseText =
+      `🚨 **Запись найдена в базе!**\n\n` +
+      `👤 **Юзернейм:** ${updatedRecord.username ? `@${updatedRecord.username}` : "Не указан"}\n` +
+      `🆔 **Telegram ID:** \`${updatedRecord.telegramId || "Не указан"}\` \n` +
+      `📅 **Когда добавили:** ${formattedDate}\n` +
+      `🔍 **Количество проверок:** ${updatedRecord.searchCount}\n` +
+      `⚠️ **Причина / Описание:** ${updatedRecord.reason || "Информация отсутствует"}\n` +
+      `🧾 **Пруфы:** ${updatedRecord.proofs || "Пруфы не предоставлены"}\n` +
+      `📊 **Статус:** ${updatedRecord.status || "Подтвержден"}`;
+
+    await ctx.reply(responseText, { parse_mode: "Markdown" });
   } catch (error) {
-    console.error("Bot error:", error);
-    await ctx.reply("Сталася помилка під час пошуку в базі.");
+    console.error("Ошибка работы с БД:", error);
+    await ctx.reply("⚠️ **Произошла ошибка при поиске в базе данных.**", {
+      parse_mode: "Markdown",
+    });
   }
 });
 
-// 4. Експорт Webhook-хендлера для Next.js & Vercel
-const handleWebhook = webhookCallback(bot, "std/http");
+// Налаштування Webhook для Vercel / Next.js App Router
+const handleWebhook = webhookCallback(bot, "std/http", {
+  onNotHandled: "return",
+});
 
 export async function POST(req: NextRequest) {
   try {
     return await handleWebhook(req);
   } catch (err) {
-    console.error(err);
-    return NextResponse.json({ error: "Webhook error" }, { status: 500 });
+    console.error("Ошибка Webhook:", err);
+    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
   }
 }
