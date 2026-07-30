@@ -20,6 +20,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { signOut } from 'next-auth/react'
 import NameHistoryModal from '@/components/NameHistoryModal'
 import { calcLevel } from '@/lib/levels'
+import { Pagination } from '@/components/pagination'
 
 interface Scammer {
   id: string
@@ -197,14 +198,20 @@ function PingPongGame() {
         if (ball.x < -10) {
           g.score.bot++; setScore({ ...g.score })
           for (let i = 0; i < 10; i++) g.particles.push({ x: 20, y: ball.y, vx: Math.random() * 5, vy: (Math.random() - 0.5) * 6, life: 1, color: '#ef4444' })
-          if (g.score.bot >= 10) { gameStateRef.current = 'idle'; setGameState('idle'); return }
-          resetBall(1)
+          if (g.score.bot >= 10) {
+            gameStateRef.current = 'idle'; setGameState('idle')
+          } else {
+            resetBall(1)
+          }
         }
         if (ball.x > W + 10) {
           g.score.player++; setScore({ ...g.score })
           for (let i = 0; i < 10; i++) g.particles.push({ x: W - 20, y: ball.y, vx: -Math.random() * 5, vy: (Math.random() - 0.5) * 6, life: 1, color: '#4ade80' })
-          if (g.score.player >= 10) { gameStateRef.current = 'idle'; setGameState('idle'); return }
-          resetBall(-1)
+          if (g.score.player >= 10) {
+            gameStateRef.current = 'idle'; setGameState('idle')
+          } else {
+            resetBall(-1)
+          }
         }
 
         g.particles = g.particles.filter(p => { p.x += p.vx; p.y += p.vy; p.life -= 0.03; p.vy += 0.1; return p.life > 0 })
@@ -1774,26 +1781,13 @@ export default function PanelPage() {
 
                     {/* Pagination */}
                     {scammerTotalPages > 1 && (
-                      <div className="flex items-center justify-center gap-2 mt-6">
-                        <button
-                          onClick={() => setScammerPage(p => Math.max(1, p - 1))}
-                          disabled={scammerPage <= 1}
-                          className="flex items-center gap-1 px-3 py-2 rounded-lg font-mono text-sm border border-green-500/20 text-green-400 hover:bg-green-500/10 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                        >
-                          <ChevronLeft className="w-4 h-4" />
-                          Назад
-                        </button>
-                        <span className="font-mono text-sm text-green-500 px-3">
-                          {scammerPage} / {scammerTotalPages}
-                        </span>
-                        <button
-                          onClick={() => setScammerPage(p => Math.min(scammerTotalPages, p + 1))}
-                          disabled={scammerPage >= scammerTotalPages}
-                          className="flex items-center gap-1 px-3 py-2 rounded-lg font-mono text-sm border border-green-500/20 text-green-400 hover:bg-green-500/10 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                        >
-                          Вперёд
-                          <ChevronRight className="w-4 h-4" />
-                        </button>
+                      <div className="mt-6">
+                        <Pagination
+                          current={scammerPage}
+                          total={scammerTotalPages}
+                          onPageChange={setScammerPage}
+                          variant="terminal"
+                        />
                       </div>
                     )}
                     </>
@@ -1955,24 +1949,13 @@ export default function PanelPage() {
 
                       {/* Pagination */}
                       {usersTotalPages > 1 && (
-                        <div className="flex items-center justify-center gap-3 mt-6">
-                          <button
-                            onClick={() => { setUsersPage(p => Math.max(1, p - 1)); loadUsers(Math.max(1, usersPage - 1), usersSearch, usersRoleFilter) }}
-                            disabled={usersPage <= 1}
-                            className="p-2 rounded-lg hover:bg-green-500/10 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                          >
-                            <ChevronLeft className="w-4 h-4 text-green-400" />
-                          </button>
-                          <span className="text-sm text-green-400 font-mono">
-                            {usersPage} / {usersTotalPages}
-                          </span>
-                          <button
-                            onClick={() => { setUsersPage(p => Math.min(usersTotalPages, p + 1)); loadUsers(Math.min(usersTotalPages, usersPage + 1), usersSearch, usersRoleFilter) }}
-                            disabled={usersPage >= usersTotalPages}
-                            className="p-2 rounded-lg hover:bg-green-500/10 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                          >
-                            <ChevronRight className="w-4 h-4 text-green-400" />
-                          </button>
+                        <div className="mt-6">
+                          <Pagination
+                            current={usersPage}
+                            total={usersTotalPages}
+                            onPageChange={(p) => { setUsersPage(p); loadUsers(p, usersSearch, usersRoleFilter) }}
+                            variant="terminal"
+                          />
                         </div>
                       )}
                     </>
@@ -2357,22 +2340,13 @@ export default function PanelPage() {
 
                     {/* Pagination */}
                     {appealsTotalPages > 1 && (
-                      <div className="flex items-center justify-center gap-2 mt-6">
-                        <button
-                          onClick={() => setAppealsPage(p => Math.max(1, p - 1))}
-                          disabled={appealsPage <= 1}
-                          className="p-2 rounded-lg glass border border-green-500/10 hover:bg-green-500/10 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                        >
-                          <ChevronLeft className="w-4 h-4 text-green-400" />
-                        </button>
-                        <span className="text-sm text-green-600 font-mono">{appealsPage} / {appealsTotalPages}</span>
-                        <button
-                          onClick={() => setAppealsPage(p => Math.min(appealsTotalPages, p + 1))}
-                          disabled={appealsPage >= appealsTotalPages}
-                          className="p-2 rounded-lg glass border border-green-500/10 hover:bg-green-500/10 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                        >
-                          <ChevronRight className="w-4 h-4 text-green-400" />
-                        </button>
+                      <div className="mt-6">
+                        <Pagination
+                          current={appealsPage}
+                          total={appealsTotalPages}
+                          onPageChange={(p) => { setAppealsPage(p); if (p === 1) loadAppeals(1, appealsStatusFilter) }}
+                          variant="terminal"
+                        />
                       </div>
                     )}
                     </>
@@ -2736,15 +2710,22 @@ export default function PanelPage() {
                           value={newRuleAction}
                           onChange={e => {
                             setNewRuleAction(e.target.value)
-                            // Для поиска имеет смысл только «Любой» — переключаем автоматически,
-                            // чтобы не провалить серверную валидацию
+                            // Для поиска и голосования подбираем подходящий статус автоматически,
+                            // чтобы не провалить серверную валидацию.
                             if (e.target.value === 'search') setNewRuleStatus('all')
+                            if (e.target.value === 'vote' && !['like', 'dislike', 'all'].includes(newRuleStatus)) {
+                              setNewRuleStatus('all')
+                            }
+                            if ((e.target.value === 'submission' || e.target.value === 'comment') && (newRuleStatus === 'like' || newRuleStatus === 'dislike')) {
+                              setNewRuleStatus('approved')
+                            }
                           }}
                           className="w-full h-9 rounded-lg bg-green-500/5 border border-green-500/20 text-sm text-green-300 px-2 font-mono focus:outline-none focus:border-green-500/50"
                         >
                           <option value="submission">Заявка</option>
                           <option value="comment">Комментарий</option>
                           <option value="search">Поиск</option>
+                          <option value="vote">Голос</option>
                         </select>
                       </div>
                       <div>
@@ -2755,8 +2736,13 @@ export default function PanelPage() {
                           disabled={newRuleAction === 'search'}
                           className="w-full h-9 rounded-lg bg-green-500/5 border border-green-500/20 text-sm text-green-300 px-2 font-mono focus:outline-none focus:border-green-500/50 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                          {newRuleAction !== 'search' && <option value="approved">Одобрено</option>}
-                          {newRuleAction !== 'search' && <option value="rejected">Отклонено</option>}
+                          {/* Для submission/comment — статусы модерации */}
+                          {(newRuleAction === 'submission' || newRuleAction === 'comment') && <option value="approved">Одобрено</option>}
+                          {(newRuleAction === 'submission' || newRuleAction === 'comment') && <option value="rejected">Отклонено</option>}
+                          {/* Для vote — типы голосов */}
+                          {newRuleAction === 'vote' && <option value="like">Лайк</option>}
+                          {newRuleAction === 'vote' && <option value="dislike">Дизлайк</option>}
+                          {/* «Любой» доступен всегда */}
                           <option value="all">Любой</option>
                         </select>
                       </div>
@@ -2802,8 +2788,8 @@ export default function PanelPage() {
                     ) : (
                       <div className="space-y-2">
                         {expRules.map((rule: any) => {
-                          const actionLabels: Record<string, string> = { submission: 'Заявка', comment: 'Комментарий', search: 'Поиск' }
-                          const statusLabels: Record<string, string> = { approved: 'Одобрено', rejected: 'Отклонено', all: 'Любой' }
+                          const actionLabels: Record<string, string> = { submission: 'Заявка', comment: 'Комментарий', search: 'Поиск', vote: 'Голос' }
+                          const statusLabels: Record<string, string> = { approved: 'Одобрено', rejected: 'Отклонено', all: 'Любой', like: 'Лайк', dislike: 'Дизлайк' }
                           return (
                             <div key={rule.id} className="flex items-center justify-between rounded-lg bg-green-500/5 border border-green-500/10 px-3 py-2">
                               <div className="font-mono text-sm text-green-300">
@@ -3452,24 +3438,12 @@ export default function PanelPage() {
 
               {/* Pagination */}
               {!hiddenTagsLoading && hiddenTagsTotal > 20 && (
-                <div className="flex items-center justify-center gap-2 mt-4 pt-3 border-t border-yellow-500/10">
-                  <button
-                    onClick={() => loadHiddenTags(hiddenTagsPage - 1, hiddenTagsSearch)}
-                    disabled={hiddenTagsPage <= 1}
-                    className="p-1.5 rounded hover:bg-yellow-500/10 disabled:opacity-30 transition-colors"
-                  >
-                    <ChevronLeft className="w-4 h-4" />
-                  </button>
-                  <span className="text-xs font-mono text-muted-foreground">
-                    {hiddenTagsPage} / {Math.ceil(hiddenTagsTotal / 20)}
-                  </span>
-                  <button
-                    onClick={() => loadHiddenTags(hiddenTagsPage + 1, hiddenTagsSearch)}
-                    disabled={hiddenTagsPage >= Math.ceil(hiddenTagsTotal / 20)}
-                    className="p-1.5 rounded hover:bg-yellow-500/10 disabled:opacity-30 transition-colors"
-                  >
-                    <ChevronRight className="w-4 h-4" />
-                  </button>
+                <div className="mt-4 pt-3 border-t border-yellow-500/10">
+                  <Pagination
+                    current={hiddenTagsPage}
+                    total={Math.ceil(hiddenTagsTotal / 20)}
+                    onPageChange={(p) => loadHiddenTags(p, hiddenTagsSearch)}
+                  />
                 </div>
               )}
             </motion.div>
