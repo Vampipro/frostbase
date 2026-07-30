@@ -50,8 +50,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Значения должны быть больше 0' }, { status: 400 })
     }
 
-    const validActions = ['submission', 'comment', 'search']
-    const validStatuses = ['approved', 'rejected', 'all']
+    const validActions = ['submission', 'comment', 'search', 'vote']
+    const validStatuses = ['approved', 'rejected', 'all', 'like', 'dislike']
     if (!validActions.includes(actionType)) {
       return NextResponse.json({ error: 'Неверный тип действия' }, { status: 400 })
     }
@@ -63,6 +63,22 @@ export async function POST(req: NextRequest) {
     if (actionType === 'search' && status !== 'all') {
       return NextResponse.json(
         { error: 'Для поиска доступен только статус «Любой»' },
+        { status: 400 }
+      )
+    }
+
+    // Для vote статусы approved/rejected не имеют смысла — только like/dislike/all
+    if (actionType === 'vote' && !['like', 'dislike', 'all'].includes(status)) {
+      return NextResponse.json(
+        { error: 'Для голосования доступны статусы: Лайк, Дизлайк, Любой' },
+        { status: 400 }
+      )
+    }
+
+    // Для submission/comment статусы like/dislike не имеют смысла
+    if ((actionType === 'submission' || actionType === 'comment') && (status === 'like' || status === 'dislike')) {
+      return NextResponse.json(
+        { error: 'Для этого действия доступны только статусы: Одобрено, Отклонено, Любой' },
         { status: 400 }
       )
     }
