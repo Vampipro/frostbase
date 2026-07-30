@@ -1,6 +1,5 @@
 import { Bot, webhookCallback } from "grammy";
 import { NextRequest, NextResponse } from "next/server";
-// Переконайся, що шлях до твоєї Prisma (або іншої БД) вказано правильно
 import { db } from "@/lib/db"; 
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
@@ -13,46 +12,36 @@ const bot = new Bot(token);
 // Команда /start
 bot.command("start", async (ctx) => {
   await ctx.reply(
-    "👋 **Приветствую! Я бот для проверки по базе данных.**\n\n" +
-      "Отправь мне **Username** (например, `@username`) или **Telegram ID** (например, `123456789`), и я проверю наличие записи в базе.",
+    "👋 **Приветствую! Я бот для проверки базы скамеров.**\n\n" +
+      "Отправь мне **Username** или **Telegram ID**, и я проверю наличие записи в базе.",
     { parse_mode: "Markdown" }
   );
 });
 
-// Обробка тексту
+// Обработка входящего текста
 bot.on("message:text", async (ctx) => {
   const query = ctx.message.text.trim();
 
-  // Ігноруємо командні запити типу /help, /start
+  // Игнорируем команды
   if (query.startsWith("/")) return;
 
-  // Визначаємо, чи це Telegram ID (тільки цифри), чи Username
-  const isId = /^\d+$/.test(query);
+  // Очищаем юзернейм от символа @, если он есть
   const cleanUsername = query.replace(/^@/, "").trim();
 
   try {
-    let record = null;
+    // Ищем в БД одновременно по telegramUserId и по name (без учета регистра)
+    const record = await db.scammer.findFirst({
+      where: {
+        OR: [
+          { telegramUserId: query },
+          { telegramUserId: cleanUsername },
+          { name: { equals: cleanUsername, mode: "insensitive" } },
+          { name: { equals: query, mode: "insensitive" } },
+        ],
+      },
+    });
 
-    if (isId) {
-      // Пошук за Telegram ID
-      record = await db.scammer.findFirst({
-        where: {
-          telegramId: query,
-        },
-      });
-    } else {
-      // Пошук за Юзернеймом (без урахування регістру)
-      record = await db.scammer.findFirst({
-        where: {
-          username: {
-            equals: cleanUsername,
-            mode: "insensitive",
-          },
-        },
-      });
-    }
-
-    // Якщо нічого не знайдено
+    // Если ничего не найдено
     if (!record) {
       await ctx.reply(
         "❌ **Ничего не найдено.**\nПользователь с такими данными отсутствует в базе.",
@@ -61,16 +50,9 @@ bot.on("message:text", async (ctx) => {
       return;
     }
 
-    // Збільшуємо лічильник пошуків на +1
-    const updatedRecord = await db.scammer.update({
-      where: { id: record.id },
-      data: {
-        searchCount: { increment: 1 },
-      },
-    });
-
-    // Форматуємо дату створення
-    const formattedDate = new Date(updatedRecord.createdAt).toLocaleDateString("ru-RU", {
+    // Форматируем дату
+    const dateToFormat = record.updatedAt || record.createdAt || new Date();
+    const formattedDate = new Date(dateToFormat).toLocaleDateString("ru-RU", {
       day: "2-digit",
       month: "2-digit",
       year: "numeric",
@@ -78,18 +60,21 @@ bot.on("message:text", async (ctx) => {
       minute: "2-digit",
     });
 
-    // Формуємо відповідь
+    // Формируем текст ответа под твои поля
     const responseText =
       `🚨 **Запись найдена в базе!**\n\n` +
-      `👤 **Юзернейм:** ${updatedRecord.username ? `@${updatedRecord.username}` : "Не указан"}\n` +
-      `🆔 **Telegram ID:** \`${updatedRecord.telegramId || "Не указан"}\` \n` +
-      `📅 **Когда добавили:** ${formattedDate}\n` +
-      `🔍 **Количество проверок:** ${updatedRecord.searchCount}\n` +
-      `⚠️ **Причина / Описание:** ${updatedRecord.reason || "Информация отсутствует"}\n` +
-      `🧾 **Пруфы:** ${updatedRecord.proofs || "Пруфы не предоставлены"}\n` +
-      `📊 **Статус:** ${updatedRecord.status || "Подтвержден"}`;
+      `👤 **Имя / Юзернейм:** ${record.name || "Не указано"}\n` +
+      `🆔 **Telegram ID:** \`${record.telegramUserId || "Не указан"}\` \n` +
+      `📌 **Тип:** ${record.scammerType || "Не указан"}\n` +
+      `📊 **Статус:** ${record.status || "scam"}\n` +
+      `📅 **Дата обновления:** ${formattedDate}\n\n` +
+      `📝 **Описание:**\n${record.description || "Описание отсутствует"}\n\n` +
+      `🔗 **Пруфы:** ${record.proofLink || "Пруфы не предоставлены"}`;
 
-    await ctx.reply(responseText, { parse_mode: "Markdown" });
+    await ctx.reply(responseText, { 
+      parse_mode: "Markdown",
+      link_preview_options: { is_disabled: false } 
+    });
   } catch (error) {
     console.error("Ошибка работы с БД:", error);
     await ctx.reply("⚠️ **Произошла ошибка при поиске в базе данных.**", {
@@ -98,7 +83,7 @@ bot.on("message:text", async (ctx) => {
   }
 });
 
-// Налаштування Webhook для Vercel / Next.js App Router
+// Настройка Webhook для Vercel / Next.js
 const handleWebhook = webhookCallback(bot, "std/http", {
   onNotHandled: "return",
 });
