@@ -1,4 +1,4 @@
-import { Bot, webhookCallback } from "grammy";
+/* import { Bot, webhookCallback } from "grammy";
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db"; 
 
@@ -95,4 +95,4 @@ export async function POST(req: NextRequest) {
     console.error("Ошибка Webhook:", err);
     return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
   }
-}
+}*/
