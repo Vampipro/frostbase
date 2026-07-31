@@ -9,17 +9,18 @@ if (!token) {
 
 const bot = new Bot(token);
 
-// Глобальне збереження мови користувачів (UA / RU / EN / PL)
+// Підтримувані мови
 type SupportedLang = "ua" | "ru" | "en" | "pl";
 const userLanguages = new Map<number, SupportedLang>();
 
-// Визначення мови користувача (з пам'яті або за налаштуваннями Telegram)
+// Гнучке визначення мови користувача
 function getUserLanguage(userId?: number, telegramLangCode?: string): SupportedLang {
+  // 1. Перевіряємо пам'ять (якщо процес ще живий)
   if (userId && userLanguages.has(userId)) {
     return userLanguages.get(userId)!;
   }
-
-  // Автоматичне визначення за мовою Telegram акаунта
+  
+  // 2. Визначення за мовою Telegram-клієнта користувача
   if (telegramLangCode) {
     const code = telegramLangCode.toLowerCase();
     if (code.startsWith("ru")) return "ru";
@@ -55,9 +56,7 @@ function isSpamming(userId: number): { spam: boolean; timeLeft: number } {
 // Переклад статусів на 4 мови (UA / RU / EN / PL)
 // ----------------------------------------------------------------------
 function getFormattedStatus(status?: string | null, lang: SupportedLang = "ua"): string {
-  if (!status) {
-    return "🚫 SCAM";
-  }
+  if (!status) return "🚫 SCAM";
 
   const normalized = status.trim().toLowerCase();
 
@@ -137,7 +136,7 @@ function getFormattedStatus(status?: string | null, lang: SupportedLang = "ua"):
 }
 
 // ----------------------------------------------------------------------
-// 1. /start — Вибір мови з 4 кнопками (UA / RU / EN / PL)
+// 1. /start — Вибір мови
 // ----------------------------------------------------------------------
 bot.command("start", async (ctx) => {
   const keyboard = new InlineKeyboard()
@@ -169,26 +168,22 @@ bot.callbackQuery(/^lang_(ua|ru|en|pl)$/, async (ctx) => {
 
   if (lang === "ua") {
     await ctx.reply(
-      "✅ **Мову змінено на Українську!**\n\n" +
-        "Надішліть **Юзернейм** (наприклад, `@username`) або **ID** користувача для перевірки.",
+      "✅ **Мову змінено на Українську!**\n\nНадішліть **Юзернейм** (наприклад, `@username`) або **ID** користувача для перевірки.",
       { parse_mode: "Markdown" }
     );
   } else if (lang === "ru") {
     await ctx.reply(
-      "✅ **Язык изменен на Русский!**\n\n" +
-        "Отправьте **Юзернейм** (например, `@username`) или **ID** пользователя для проверки.",
+      "✅ **Язык изменен на Русский!**\n\nОтправьте **Юзернейм** (например, `@username`) или **ID** пользователя для проверки.",
       { parse_mode: "Markdown" }
     );
   } else if (lang === "pl") {
     await ctx.reply(
-      "✅ **Język zmieniony na Polski!**\n\n" +
-        "Wyślij **Nazwę użytkownika** (np. `@username`) lub **ID** użytkownika, aby sprawdzić bazę.",
+      "✅ **Język zmieniony na Polski!**\n\nWyślij **Nazwę użytkownika** (np. `@username`) lub **ID** użytkownika, aby sprawdzić bazę.",
       { parse_mode: "Markdown" }
     );
   } else {
     await ctx.reply(
-      "✅ **Language set to English!**\n\n" +
-        "Send a **Username** (e.g., `@username`) or **Telegram ID** to check the database.",
+      "✅ **Language set to English!**\n\nSend a **Username** (e.g., `@username`) or **Telegram ID** to check the database.",
       { parse_mode: "Markdown" }
     );
   }
@@ -203,42 +198,48 @@ bot.on("message:text", async (ctx) => {
 
   if (rawInput.startsWith("/")) return;
 
-  // Отримуємо мову користувача
   const userLang = getUserLanguage(userId, ctx.from?.language_code);
 
-  // Захист від спаму
+  // Спам фільтр
   if (userId) {
     const { spam, timeLeft } = isSpamming(userId);
     if (spam) {
       let spamMsg = `⏳ **Будь ласка, зачекайте ${timeLeft} сек.** перед наступним запитом.`;
-      if (userLang === "ru") {
-        spamMsg = `⏳ **Пожалуйста, подождите ${timeLeft} сек.** перед следующим запросом.`;
-      } else if (userLang === "pl") {
-        spamMsg = `⏳ **Proszę czekać ${timeLeft} sek.** przed wysłaniem kolejnego zapytania.`;
-      } else if (userLang === "en") {
-        spamMsg = `⏳ **Please wait ${timeLeft} sec.** before sending another request.`;
-      }
+      if (userLang === "ru") spamMsg = `⏳ **Пожалуйста, подождите ${timeLeft} сек.** перед следующим запросом.`;
+      if (userLang === "pl") spamMsg = `⏳ **Proszę czekać ${timeLeft} sek.** przed wysłaniem kolejnego zapytania.`;
+      if (userLang === "en") spamMsg = `⏳ **Please wait ${timeLeft} sec.** before sending another request.`;
+      
       await ctx.reply(spamMsg, { parse_mode: "Markdown" });
       return;
     }
   }
 
-  // 🛠 ГЕНЕРУЄМО ВАРІАНТИ ДЛЯ ПОШУКУ (з @ та без @)
+  // Очистка та перевірка типу введення
   const withoutAt = rawInput.replace(/^@/, "").trim();
   const withAt = `@${withoutAt}`;
+  
+  // Перевіряємо, чи ввів користувач суто цифри (ID)
+  const isNumericInput = /^\d+$/.test(withoutAt);
 
   try {
-    // Гнучкий пошук у базі Neon через Prisma (перевіряє і з @, і без @)
+    // 🔍 БЕЗПЕЧНИЙ ПОШУК В БАЗІ NEON (Без збоїв типізації)
+    const searchConditions: any[] = [
+      { name: { equals: rawInput, mode: "insensitive" } },
+      { name: { equals: withoutAt, mode: "insensitive" } },
+      { name: { equals: withAt, mode: "insensitive" } },
+    ];
+
+    // Додаємо пошук по ID ТІЛЬКИ якщо введено цифри
+    if (isNumericInput) {
+      searchConditions.push(
+        { telegramUserId: rawInput },
+        { telegramUserId: withoutAt }
+      );
+    }
+
     const record = await db.scammer.findFirst({
       where: {
-        OR: [
-          { telegramUserId: rawInput },
-          { telegramUserId: withoutAt },
-          { telegramUserId: withAt },
-          { name: { equals: rawInput, mode: "insensitive" } },
-          { name: { equals: withoutAt, mode: "insensitive" } },
-          { name: { equals: withAt, mode: "insensitive" } },
-        ],
+        OR: searchConditions,
       },
     });
 
@@ -276,11 +277,13 @@ bot.on("message:text", async (ctx) => {
       return;
     }
 
-    // ➕ ДОДАЄМО +1 ДО ЛІЧИЛЬНИКА ПОШУКІВ (searchCount)
+    // ➕ БЕЗПЕЧНЕ ОНОВЛЕННЯ ЛІЧИЛЬНИКА (Захист від null)
+    const currentSearchCount = typeof record.searchCount === "number" ? record.searchCount : 0;
+    
     const updatedRecord = await db.scammer.update({
       where: { id: record.id },
       data: {
-        searchCount: { increment: 1 },
+        searchCount: currentSearchCount + 1,
       },
     });
 
@@ -300,7 +303,7 @@ bot.on("message:text", async (ctx) => {
       minute: "2-digit",
     });
 
-    // Юзернейм
+    // Форматування Юзернейму
     const noNameText: Record<SupportedLang, string> = {
       ua: "Не вказано",
       ru: "Не указан",
