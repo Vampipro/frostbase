@@ -9,8 +9,26 @@ if (!token) {
 
 const bot = new Bot(token);
 
-// Збереження мови користувачів у пам'яті (за замовчуванням 'ua')
-const userLanguages = new Map<number, "ua" | "ru">();
+// Глобальне збереження мови користувачів
+type SupportedLang = "ua" | "ru" | "en";
+const userLanguages = new Map<number, SupportedLang>();
+
+// Визначення мови користувача (з пам'яті або за налаштуваннями Telegram)
+function getUserLanguage(userId?: number, telegramLangCode?: string): SupportedLang {
+  if (userId && userLanguages.has(userId)) {
+    return userLanguages.get(userId)!;
+  }
+  
+  // Автоматичне визначення за мовою Telegram акаунта
+  if (telegramLangCode) {
+    const code = telegramLangCode.toLowerCase();
+    if (code.startsWith("ru")) return "ru";
+    if (code.startsWith("en")) return "en";
+    if (code.startsWith("uk") || code.startsWith("ua")) return "ua";
+  }
+
+  return "ua"; // Мова за замовчуванням
+}
 
 // ----------------------------------------------------------------------
 // Захист від спаму (Кулдаун 7 секунд)
@@ -33,54 +51,74 @@ function isSpamming(userId: number): { spam: boolean; timeLeft: number } {
 }
 
 // ----------------------------------------------------------------------
-// Кастомна мапа статусів згідно зі скріншотом
+// Переклад статусів на 3 мови (UA / RU / EN)
 // ----------------------------------------------------------------------
-function getFormattedStatus(status?: string | null, lang: "ua" | "ru" = "ua"): string {
+function getFormattedStatus(status?: string | null, lang: SupportedLang = "ua"): string {
   if (!status) {
-    return lang === "ua" ? "🚫 СКАМ" : "🚫 СКАМ";
+    return "🚫 SCAM";
   }
 
   const normalized = status.trim().toLowerCase();
 
   switch (normalized) {
     case "scam":
-      return lang === "ua" ? "🚫 СКАМ" : "🚫 СКАМ";
+      return "🚫 SCAM";
 
     case "verified":
-      return lang === "ua" ? "✅ Виводить" : "✅ Выводит";
+      if (lang === "ru") return "✅ Выводит";
+      if (lang === "en") return "✅ Verified Payouts";
+      return "✅ Виводить";
 
     case "no_rewards":
-      return lang === "ua" ? "🔴 Не виводить" : "🔴 Не выводит";
+      if (lang === "ru") return "🔴 Не выводит";
+      if (lang === "en") return "🔴 No Payouts";
+      return "🔴 Не виводить";
 
     case "us_skamera":
-      return lang === "ua" ? "👤 ЮЗ шахрая" : "👤 ЮЗ мошенника";
+      if (lang === "ru") return "👤 ЮЗ мошенника";
+      if (lang === "en") return "👤 Scammer Username";
+      return "👤 ЮЗ шахрая";
 
     case "rewardidk":
-      return lang === "ua" ? "⚠️ Нестабільно" : "⚠️ Нестабильно";
+      if (lang === "ru") return "⚠️ Нестабильно";
+      if (lang === "en") return "⚠️ Unstable";
+      return "⚠️ Нестабільно";
 
     case "podozritelnyj":
-      return lang === "ua" ? "🧐 Підозріло" : "🧐 Подозрительно";
+      if (lang === "ru") return "🧐 Подозрительно";
+      if (lang === "en") return "🧐 Suspicious";
+      return "🧐 Підозріло";
 
     case "dimka":
-      return lang === "ua" ? "димка" : "димка";
+      return "dimka";
 
     case "wllad":
-      return lang === "ua" ? "💎 Власник" : "💎 Владелец";
+      if (lang === "ru") return "💎 Владелец";
+      if (lang === "en") return "💎 Owner";
+      return "💎 Власник";
 
     case "no_baza":
-      return lang === "ua" ? "❓ Немає в базі" : "❓ Нет в базе";
+      if (lang === "ru") return "❓ Нет в базе";
+      if (lang === "en") return "❓ Not in Database";
+      return "❓ Немає в базі";
 
     case "stolen_nft":
-      return lang === "ua" ? "🛞 Крадений NFT" : "🛞 Краденый NFT";
+      if (lang === "ru") return "🛞 Краденый NFT";
+      if (lang === "en") return "🛞 Stolen NFT";
+      return "🛞 Крадений NFT";
 
     case "swiazsoskam":
-      return lang === "ua" ? "🔗 Зв'язок зі скамом" : "🔗 Связь со скамом";
+      if (lang === "ru") return "🔗 Связь со скамом";
+      if (lang === "en") return "🔗 Linked to Scam";
+      return "🔗 Зв'язок зі скамом";
 
     case "admin":
-      return lang === "ua" ? "Адмін" : "Админ";
+      if (lang === "ru") return "Админ";
+      if (lang === "en") return "Admin";
+      return "Адмін";
 
     case "scambot":
-      return lang === "ua" ? "скам бот" : "скам бот";
+      return "scam bot";
 
     default:
       return `📌 ${status}`;
@@ -88,15 +126,16 @@ function getFormattedStatus(status?: string | null, lang: "ua" | "ru" = "ua"): s
 }
 
 // ----------------------------------------------------------------------
-// 1. /start — Вибір мови кнопками
+// 1. /start — Вибір мови з 3 кнопками (UA / RU / EN)
 // ----------------------------------------------------------------------
 bot.command("start", async (ctx) => {
   const keyboard = new InlineKeyboard()
     .text("🇺🇦 Українська", "lang_ua")
-    .text("🇷🇺 Русский", "lang_ru");
+    .text("🇷🇺 Русский", "lang_ru")
+    .text("🇬🇧 English", "lang_en");
 
   await ctx.reply(
-    "👋 **Оберіть мову / Выберите язык:**",
+    "👋 **Оберіть мову / Выберите язык / Choose language:**",
     {
       parse_mode: "Markdown",
       reply_markup: keyboard,
@@ -107,8 +146,8 @@ bot.command("start", async (ctx) => {
 // ----------------------------------------------------------------------
 // 2. Обробка натискання на кнопки мови
 // ----------------------------------------------------------------------
-bot.callbackQuery(/^lang_(ua|ru)$/, async (ctx) => {
-  const lang = ctx.match[1] as "ua" | "ru";
+bot.callbackQuery(/^lang_(ua|ru|en)$/, async (ctx) => {
+  const lang = ctx.match[1] as SupportedLang;
   if (ctx.from?.id) {
     userLanguages.set(ctx.from.id, lang);
   }
@@ -121,17 +160,23 @@ bot.callbackQuery(/^lang_(ua|ru)$/, async (ctx) => {
         "Надішліть **Юзернейм** (наприклад, `@username`) або **ID** користувача для перевірки.",
       { parse_mode: "Markdown" }
     );
-  } else {
+  } else if (lang === "ru") {
     await ctx.reply(
       "✅ **Язык изменен на Русский!**\n\n" +
         "Отправьте **Юзернейм** (например, `@username`) или **ID** пользователя для проверки.",
+      { parse_mode: "Markdown" }
+    );
+  } else {
+    await ctx.reply(
+      "✅ **Language set to English!**\n\n" +
+        "Send a **Username** (e.g., `@username`) or **Telegram ID** to check the database.",
       { parse_mode: "Markdown" }
     );
   }
 });
 
 // ----------------------------------------------------------------------
-// 3. Обробка пошуку та інкремент searchCount
+// 3. Обробка пошуку
 // ----------------------------------------------------------------------
 bot.on("message:text", async (ctx) => {
   const userId = ctx.from?.id;
@@ -139,16 +184,19 @@ bot.on("message:text", async (ctx) => {
 
   if (rawInput.startsWith("/")) return;
 
-  const userLang = (userId && userLanguages.get(userId)) || "ua";
+  // Отримуємо мову з урахуванням вибору або Telegram-профілю
+  const userLang = getUserLanguage(userId, ctx.from?.language_code);
 
   // Захист від спаму
   if (userId) {
     const { spam, timeLeft } = isSpamming(userId);
     if (spam) {
-      const spamMsg =
-        userLang === "ua"
-          ? `⏳ **Будь ласка, зачекайте ${timeLeft} сек.** перед наступним запитом.`
-          : `⏳ **Пожалуйста, подождите ${timeLeft} сек.** перед следующим запросом.`;
+      let spamMsg = `⏳ **Будь ласка, зачекайте ${timeLeft} сек.** перед наступним запитом.`;
+      if (userLang === "ru") {
+        spamMsg = `⏳ **Пожалуйста, подождите ${timeLeft} сек.** перед следующим запросом.`;
+      } else if (userLang === "en") {
+        spamMsg = `⏳ **Please wait ${timeLeft} sec.** before sending another request.`;
+      }
       await ctx.reply(spamMsg, { parse_mode: "Markdown" });
       return;
     }
@@ -157,7 +205,7 @@ bot.on("message:text", async (ctx) => {
   const cleanInput = rawInput.replace(/^@/, "").trim();
 
   try {
-    // Шукаємо запис в БД
+    // Пошук запису в БД Neon
     const record = await db.scammer.findFirst({
       where: {
         OR: [
@@ -173,14 +221,23 @@ bot.on("message:text", async (ctx) => {
     if (!record) {
       const displayTag = rawInput.startsWith("@") ? rawInput : `@${cleanInput}`;
       
-      const notFoundText =
-        userLang === "ua"
-          ? `❌ **Користувача ${displayTag} (або ID: \`${cleanInput}\`) не знайдено в базі.**\n\n` +
-            `Додати скамера в базу або переглянути інших можна на нашому сайті:\n` +
-            `🌐 https://frostscambase.vercel.app/`
-          : `❌ **Пользователь ${displayTag} (или ID: \`${cleanInput}\`) не найден в базе.**\n\n` +
-            `Добавить скамера в базу или проверить других можно на нашем сайте:\n` +
-            `🌐 https://frostscambase.vercel.app/`;
+      let notFoundText = "";
+      if (userLang === "ua") {
+        notFoundText =
+          `❌ **Користувача ${displayTag} (або ID: \`${cleanInput}\`) не знайдено в базі.**\n\n` +
+          `Додати скамера в базу або переглянути інших можна на нашому сайті:\n` +
+          `🌐 https://frostscambase.vercel.app/`;
+      } else if (userLang === "ru") {
+        notFoundText =
+          `❌ **Пользователь ${displayTag} (или ID: \`${cleanInput}\`) не найден в базе.**\n\n` +
+          `Добавить скамера в базу или проверить других можно на нашем сайте:\n` +
+          `🌐 https://frostscambase.vercel.app/`;
+      } else {
+        notFoundText =
+          `❌ **User ${displayTag} (or ID: \`${cleanInput}\`) was not found in the database.**\n\n` +
+          `You can report a scammer or search others on our website:\n` +
+          `🌐 https://frostscambase.vercel.app/`;
+      }
 
       await ctx.reply(notFoundText, {
         parse_mode: "Markdown",
@@ -189,7 +246,7 @@ bot.on("message:text", async (ctx) => {
       return;
     }
 
-    // ➕ ДОДАЄМО +1 ДО ЛІЧИЛЬНИКА ПОШУКІВ (searchCount) В NEON DB
+    // ➕ ДОДАЄМО +1 ДО ЛІЧИЛЬНИКА ПОШУКІВ (searchCount)
     const updatedRecord = await db.scammer.update({
       where: { id: record.id },
       data: {
@@ -198,24 +255,32 @@ bot.on("message:text", async (ctx) => {
     });
 
     // Форматування дати
+    const localeMap: Record<SupportedLang, string> = {
+      ua: "uk-UA",
+      ru: "ru-RU",
+      en: "en-US",
+    };
     const dateToFormat = updatedRecord.updatedAt || updatedRecord.createdAt || new Date();
-    const formattedDate = new Date(dateToFormat).toLocaleDateString(
-      userLang === "ua" ? "uk-UA" : "ru-RU",
-      {
-        day: "2-digit",
-        month: "2-digit",
-        year: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      }
-    );
+    const formattedDate = new Date(dateToFormat).toLocaleDateString(localeMap[userLang], {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
 
-    let usernameDisplay = userLang === "ua" ? "Не вказано" : "Не указан";
+    // Юзернейм
+    const noNameText: Record<SupportedLang, string> = {
+      ua: "Не вказано",
+      ru: "Не указан",
+      en: "Not specified",
+    };
+    let usernameDisplay = noNameText[userLang];
     if (updatedRecord.name) {
       usernameDisplay = updatedRecord.name.startsWith("@") ? updatedRecord.name : `@${updatedRecord.name}`;
     }
 
-    // Формування повідомлення з новими статусами та лічильником
+    // Текст відповіді на 3 мовах
     let responseText = "";
 
     if (userLang === "ua") {
@@ -233,7 +298,7 @@ bot.on("message:text", async (ctx) => {
         `💬 **Наш чат:** @wocmf\n` +
         `❤️ **Підтримати проєкт:** t.me/send?start=IVkrkNlUFFtA\n\n` +
         `💡 *Додати скамера, переглянути інших або перевірених ботів можна на нашому сайті!*`;
-    } else {
+    } else if (userLang === "ru") {
       responseText =
         `🚨 **Информация о нарушителе:**\n\n` +
         `👤 **Юзернейм:** ${usernameDisplay}\n` +
@@ -248,6 +313,21 @@ bot.on("message:text", async (ctx) => {
         `💬 **Наш чат:** @wocmf\n` +
         `❤️ **Поддержать проект:** t.me/send?start=IVkrkNlUFFtA\n\n` +
         `💡 *Добавить скамера, посмотреть других скамеров или проверенных ботов можно на нашем сайте!*`;
+    } else {
+      responseText =
+        `🚨 **Offender Information:**\n\n` +
+        `👤 **Username:** ${usernameDisplay}\n` +
+        `🆔 **ID:** \`${updatedRecord.telegramUserId || "Not specified"}\` \n` +
+        `📊 **Status:** ${getFormattedStatus(updatedRecord.status, "en")}\n` +
+        `📝 **Description:** ${updatedRecord.description || "No description available"}\n` +
+        `👁 **Search count:** ${updatedRecord.searchCount}\n` +
+        `📅 **Date added:** ${formattedDate}\n` +
+        `🧾 **Proofs:** ${updatedRecord.proofLink || "No proof provided"}\n\n` +
+        `───────────────\n` +
+        `🌐 **Our Website:** https://frostscambase.vercel.app/\n` +
+        `💬 **Our Chat:** @wocmf\n` +
+        `❤️ **Support Project:** t.me/send?start=IVkrkNlUFFtA\n\n` +
+        `💡 *You can report a scammer, view others, or check verified bots on our website!*`;
     }
 
     await ctx.reply(responseText, {
@@ -256,10 +336,10 @@ bot.on("message:text", async (ctx) => {
     });
   } catch (error) {
     console.error("Помилка під час пошуку:", error);
-    const errorMsg =
-      userLang === "ua"
-        ? "⚠️ **Сталася помилка при пошуку в базі даних.**"
-        : "⚠️ **Произошла ошибка при поиске в базе данных.**";
+    let errorMsg = "⚠️ **Сталася помилка при пошуку в базі даних.**";
+    if (userLang === "ru") errorMsg = "⚠️ **Произошла ошибка при поиске в базе данных.**";
+    if (userLang === "en") errorMsg = "⚠️ **An error occurred while searching the database.**";
+    
     await ctx.reply(errorMsg, { parse_mode: "Markdown" });
   }
 });
