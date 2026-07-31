@@ -1,4 +1,4 @@
-import { Bot, webhookCallback } from "grammy";
+import { Bot, InlineKeyboard, webhookCallback } from "grammy";
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 
@@ -9,8 +9,11 @@ if (!token) {
 
 const bot = new Bot(token);
 
+// Збереження мови користувачів у пам'яті (за замовчуванням 'ua')
+const userLanguages = new Map<number, "ua" | "ru">();
+
 // ----------------------------------------------------------------------
-// 5. Захист від спаму (Кулдаун 7 секунд)
+// Захист від спаму (Кулдаун 7 секунд)
 // ----------------------------------------------------------------------
 const COOLDOWN_SECONDS = 7;
 const userCooldowns = new Map<number, number>();
@@ -29,53 +32,132 @@ function isSpamming(userId: number): { spam: boolean; timeLeft: number } {
   return { spam: false, timeLeft: 0 };
 }
 
-// Помічник для красивого виводу статусу з емоджі
-function getStatusEmoji(status?: string | null): string {
-  if (!status) return "🚨 SCAM";
-  const lower = status.toLowerCase();
-  if (lower.includes("scam") || lower.includes("скам")) return "🚨 SCAM";
-  if (lower.includes("warn") || lower.includes("варн")) return "⚠️ Подозрительный";
-  if (lower.includes("clear") || lower.includes("чист")) return "✅ Проверен";
-  return `📌 ${status}`;
+// ----------------------------------------------------------------------
+// Кастомна мапа статусів згідно зі скріншотом
+// ----------------------------------------------------------------------
+function getFormattedStatus(status?: string | null, lang: "ua" | "ru" = "ua"): string {
+  if (!status) {
+    return lang === "ua" ? "🚫 СКАМ" : "🚫 СКАМ";
+  }
+
+  const normalized = status.trim().toLowerCase();
+
+  switch (normalized) {
+    case "scam":
+      return lang === "ua" ? "🚫 СКАМ" : "🚫 СКАМ";
+
+    case "verified":
+      return lang === "ua" ? "✅ Виводить" : "✅ Выводит";
+
+    case "no_rewards":
+      return lang === "ua" ? "🔴 Не виводить" : "🔴 Не выводит";
+
+    case "us_skamera":
+      return lang === "ua" ? "👤 ЮЗ шахрая" : "👤 ЮЗ мошенника";
+
+    case "rewardidk":
+      return lang === "ua" ? "⚠️ Нестабільно" : "⚠️ Нестабильно";
+
+    case "podozritelnyj":
+      return lang === "ua" ? "🧐 Підозріло" : "🧐 Подозрительно";
+
+    case "dimka":
+      return lang === "ua" ? "димка" : "димка";
+
+    case "wllad":
+      return lang === "ua" ? "💎 Власник" : "💎 Владелец";
+
+    case "no_baza":
+      return lang === "ua" ? "❓ Немає в базі" : "❓ Нет в базе";
+
+    case "stolen_nft":
+      return lang === "ua" ? "🛞 Крадений NFT" : "🛞 Краденый NFT";
+
+    case "swiazsoskam":
+      return lang === "ua" ? "🔗 Зв'язок зі скамом" : "🔗 Связь со скамом";
+
+    case "admin":
+      return lang === "ua" ? "Адмін" : "Админ";
+
+    case "scambot":
+      return lang === "ua" ? "скам бот" : "скам бот";
+
+    default:
+      return `📌 ${status}`;
+  }
 }
 
 // ----------------------------------------------------------------------
-// 2. Команда /start
+// 1. /start — Вибір мови кнопками
 // ----------------------------------------------------------------------
 bot.command("start", async (ctx) => {
+  const keyboard = new InlineKeyboard()
+    .text("🇺🇦 Українська", "lang_ua")
+    .text("🇷🇺 Русский", "lang_ru");
+
   await ctx.reply(
-    "👋 **Привет! Введите Юзернейм (например, `@username`) или ID пользователя для проверки.**",
-    { parse_mode: "Markdown" }
+    "👋 **Оберіть мову / Выберите язык:**",
+    {
+      parse_mode: "Markdown",
+      reply_markup: keyboard,
+    }
   );
 });
 
 // ----------------------------------------------------------------------
-// 1, 3, 4, 5. Обробка текстових запитів (пошук та кулдаун)
+// 2. Обробка натискання на кнопки мови
+// ----------------------------------------------------------------------
+bot.callbackQuery(/^lang_(ua|ru)$/, async (ctx) => {
+  const lang = ctx.match[1] as "ua" | "ru";
+  if (ctx.from?.id) {
+    userLanguages.set(ctx.from.id, lang);
+  }
+
+  await ctx.answerCallbackQuery();
+
+  if (lang === "ua") {
+    await ctx.reply(
+      "✅ **Мову змінено на Українську!**\n\n" +
+        "Надішліть **Юзернейм** (наприклад, `@username`) або **ID** користувача для перевірки.",
+      { parse_mode: "Markdown" }
+    );
+  } else {
+    await ctx.reply(
+      "✅ **Язык изменен на Русский!**\n\n" +
+        "Отправьте **Юзернейм** (например, `@username`) или **ID** пользователя для проверки.",
+      { parse_mode: "Markdown" }
+    );
+  }
+});
+
+// ----------------------------------------------------------------------
+// 3. Обробка пошуку та інкремент searchCount
 // ----------------------------------------------------------------------
 bot.on("message:text", async (ctx) => {
   const userId = ctx.from?.id;
   const rawInput = ctx.message.text.trim();
 
-  // Ігноруємо команди
   if (rawInput.startsWith("/")) return;
+
+  const userLang = (userId && userLanguages.get(userId)) || "ua";
 
   // Захист від спаму
   if (userId) {
     const { spam, timeLeft } = isSpamming(userId);
     if (spam) {
-      await ctx.reply(
-        `⏳ **Пожалуйста, подождите ${timeLeft} сек.** перед следующим запросом.`,
-        { parse_mode: "Markdown" }
-      );
+      const spamMsg =
+        userLang === "ua"
+          ? `⏳ **Будь ласка, зачекайте ${timeLeft} сек.** перед наступним запитом.`
+          : `⏳ **Пожалуйста, подождите ${timeLeft} сек.** перед следующим запросом.`;
+      await ctx.reply(spamMsg, { parse_mode: "Markdown" });
       return;
     }
   }
 
-  // Очищаємо юзернейм від символу @ для гнучкого пошуку
   const cleanInput = rawInput.replace(/^@/, "").trim();
 
   try {
-    // 1. Перевірка на 2 поля одразу (і як ID, і як Username, з @ або без)
+    // Шукаємо запис в БД
     const record = await db.scammer.findFirst({
       where: {
         OR: [
@@ -87,65 +169,102 @@ bot.on("message:text", async (ctx) => {
       },
     });
 
-    // 4. Якщо скамера НЕ знайдено
+    // Якщо НЕ знайдено
     if (!record) {
       const displayTag = rawInput.startsWith("@") ? rawInput : `@${cleanInput}`;
-      await ctx.reply(
-        `❌ **Пользователь ${displayTag} (или ID: \`${cleanInput}\`) не найден в базе.**\n\n` +
-          `Добавить скамера в базу или проверить других можно на нашем сайте:\n` +
-          `🌐 https://frostscambase.vercel.app/`,
-        {
-          parse_mode: "Markdown",
-          link_preview_options: { is_disabled: true },
-        }
-      );
+      
+      const notFoundText =
+        userLang === "ua"
+          ? `❌ **Користувача ${displayTag} (або ID: \`${cleanInput}\`) не знайдено в базі.**\n\n` +
+            `Додати скамера в базу або переглянути інших можна на нашому сайті:\n` +
+            `🌐 https://frostscambase.vercel.app/`
+          : `❌ **Пользователь ${displayTag} (или ID: \`${cleanInput}\`) не найден в базе.**\n\n` +
+            `Добавить скамера в базу или проверить других можно на нашем сайте:\n` +
+            `🌐 https://frostscambase.vercel.app/`;
+
+      await ctx.reply(notFoundText, {
+        parse_mode: "Markdown",
+        link_preview_options: { is_disabled: true },
+      });
       return;
     }
 
-    // Форматування дати
-    const dateToFormat = record.updatedAt || record.createdAt || new Date();
-    const formattedDate = new Date(dateToFormat).toLocaleDateString("ru-RU", {
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
+    // ➕ ДОДАЄМО +1 ДО ЛІЧИЛЬНИКА ПОШУКІВ (searchCount) В NEON DB
+    const updatedRecord = await db.scammer.update({
+      where: { id: record.id },
+      data: {
+        searchCount: { increment: 1 },
+      },
     });
 
-    // Форматування Юзернейму з @
-    let usernameDisplay = "Не указан";
-    if (record.name) {
-      usernameDisplay = record.name.startsWith("@") ? record.name : `@${record.name}`;
+    // Форматування дати
+    const dateToFormat = updatedRecord.updatedAt || updatedRecord.createdAt || new Date();
+    const formattedDate = new Date(dateToFormat).toLocaleDateString(
+      userLang === "ua" ? "uk-UA" : "ru-RU",
+      {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      }
+    );
+
+    let usernameDisplay = userLang === "ua" ? "Не вказано" : "Не указан";
+    if (updatedRecord.name) {
+      usernameDisplay = updatedRecord.name.startsWith("@") ? updatedRecord.name : `@${updatedRecord.name}`;
     }
 
-    // 3. Якщо знайдено — виводимо повну інформацію
-    const responseText =
-      `🚨 **Информация о нарушителе:**\n\n` +
-      `👤 **Юзернейм:** ${usernameDisplay}\n` +
-      `🆔 **ID:** \`${record.telegramUserId || "Не указан"}\` \n` +
-      `📊 **Статус:** ${getStatusEmoji(record.status)}\n` +
-      `📝 **Описание:** ${record.description || "Описание отсутствует"}\n` +
-      `📅 **Дата добавления:** ${formattedDate}\n` +
-      `🧾 **Пруфы:** ${record.proofLink || "Пруфы не предоставлены"}\n\n` +
-      `───────────────\n` +
-      `🌐 **Наш сайт:** https://frostscambase.vercel.app/\n` +
-      `💬 **Наш чат:** @wocmf\n` +
-      `❤️ **Поддержать проект:** t.me/send?start=IVkrkNlUFFtA\n\n` +
-      `💡 *Добавить скамера, посмотреть других скамеров или проверенных ботов можно на нашем сайте!*`;
+    // Формування повідомлення з новими статусами та лічильником
+    let responseText = "";
+
+    if (userLang === "ua") {
+      responseText =
+        `🚨 **Інформація про порушника:**\n\n` +
+        `👤 **Юзернейм:** ${usernameDisplay}\n` +
+        `🆔 **ID:** \`${updatedRecord.telegramUserId || "Не вказано"}\` \n` +
+        `📊 **Статус:** ${getFormattedStatus(updatedRecord.status, "ua")}\n` +
+        `📝 **Опис:** ${updatedRecord.description || "Опис відсутній"}\n` +
+        `👁 **Кількість переглядів:** ${updatedRecord.searchCount}\n` +
+        `📅 **Дата додавання:** ${formattedDate}\n` +
+        `🧾 **Докази:** ${updatedRecord.proofLink || "Докази не надано"}\n\n` +
+        `───────────────\n` +
+        `🌐 **Наш сайт:** https://frostscambase.vercel.app/\n` +
+        `💬 **Наш чат:** @wocmf\n` +
+        `❤️ **Підтримати проєкт:** t.me/send?start=IVkrkNlUFFtA\n\n` +
+        `💡 *Додати скамера, переглянути інших або перевірених ботів можна на нашому сайті!*`;
+    } else {
+      responseText =
+        `🚨 **Информация о нарушителе:**\n\n` +
+        `👤 **Юзернейм:** ${usernameDisplay}\n` +
+        `🆔 **ID:** \`${updatedRecord.telegramUserId || "Не указан"}\` \n` +
+        `📊 **Статус:** ${getFormattedStatus(updatedRecord.status, "ru")}\n` +
+        `📝 **Описание:** ${updatedRecord.description || "Описание отсутствует"}\n` +
+        `👁 **Количество просмотров:** ${updatedRecord.searchCount}\n` +
+        `📅 **Дата добавления:** ${formattedDate}\n` +
+        `🧾 **Пруфы:** ${updatedRecord.proofLink || "Пруфы не предоставлены"}\n\n` +
+        `───────────────\n` +
+        `🌐 **Наш сайт:** https://frostscambase.vercel.app/\n` +
+        `💬 **Наш чат:** @wocmf\n` +
+        `❤️ **Поддержать проект:** t.me/send?start=IVkrkNlUFFtA\n\n` +
+        `💡 *Добавить скамера, посмотреть других скамеров или проверенных ботов можно на нашем сайте!*`;
+    }
 
     await ctx.reply(responseText, {
       parse_mode: "Markdown",
       link_preview_options: { is_disabled: false },
     });
   } catch (error) {
-    console.error("Ошибка при поиске:", error);
-    await ctx.reply("⚠️ **Произошла ошибка при поиске в базе данных.**", {
-      parse_mode: "Markdown",
-    });
+    console.error("Помилка під час пошуку:", error);
+    const errorMsg =
+      userLang === "ua"
+        ? "⚠️ **Сталася помилка при пошуку в базі даних.**"
+        : "⚠️ **Произошла ошибка при поиске в базе данных.**";
+    await ctx.reply(errorMsg, { parse_mode: "Markdown" });
   }
 });
 
-// Налаштування Webhook для Vercel / Next.js App Router
+// Налаштування Webhook для Vercel / Next.js
 const handleWebhook = webhookCallback(bot, "std/http", {
   onNotHandled: "return",
 });
@@ -154,7 +273,7 @@ export async function POST(req: NextRequest) {
   try {
     return await handleWebhook(req);
   } catch (err) {
-    console.error("Ошибка Webhook:", err);
+    console.error("Помилка Webhook:", err);
     return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
   }
 }
