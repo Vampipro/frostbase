@@ -1,6 +1,6 @@
-/* import { Bot, webhookCallback } from "grammy";
+import { Bot, webhookCallback } from "grammy";
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db"; 
+import { db } from "@/lib/db";
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
 if (!token) {
@@ -9,48 +9,100 @@ if (!token) {
 
 const bot = new Bot(token);
 
-// Команда /start
+// ----------------------------------------------------------------------
+// 5. Захист від спаму (Кулдаун 7 секунд)
+// ----------------------------------------------------------------------
+const COOLDOWN_SECONDS = 7;
+const userCooldowns = new Map<number, number>();
+
+function isSpamming(userId: number): { spam: boolean; timeLeft: number } {
+  const now = Date.now();
+  const lastRequestTime = userCooldowns.get(userId) || 0;
+  const timePassed = (now - lastRequestTime) / 1000;
+
+  if (timePassed < COOLDOWN_SECONDS) {
+    const timeLeft = Math.ceil(COOLDOWN_SECONDS - timePassed);
+    return { spam: true, timeLeft };
+  }
+
+  userCooldowns.set(userId, now);
+  return { spam: false, timeLeft: 0 };
+}
+
+// Помічник для красивого виводу статусу з емоджі
+function getStatusEmoji(status?: string | null): string {
+  if (!status) return "🚨 SCAM";
+  const lower = status.toLowerCase();
+  if (lower.includes("scam") || lower.includes("скам")) return "🚨 SCAM";
+  if (lower.includes("warn") || lower.includes("варн")) return "⚠️ Подозрительный";
+  if (lower.includes("clear") || lower.includes("чист")) return "✅ Проверен";
+  return `📌 ${status}`;
+}
+
+// ----------------------------------------------------------------------
+// 2. Команда /start
+// ----------------------------------------------------------------------
 bot.command("start", async (ctx) => {
   await ctx.reply(
-    "👋 **Приветствую! Я бот для проверки базы скамеров.**\n\n" +
-      "Отправь мне **Username** или **Telegram ID**, и я проверю наличие записи в базе.",
+    "👋 **Привет! Введите Юзернейм (например, `@username`) или ID пользователя для проверки.**",
     { parse_mode: "Markdown" }
   );
 });
 
-// Обработка входящего текста
+// ----------------------------------------------------------------------
+// 1, 3, 4, 5. Обробка текстових запитів (пошук та кулдаун)
+// ----------------------------------------------------------------------
 bot.on("message:text", async (ctx) => {
-  const query = ctx.message.text.trim();
+  const userId = ctx.from?.id;
+  const rawInput = ctx.message.text.trim();
 
-  // Игнорируем команды
-  if (query.startsWith("/")) return;
+  // Ігноруємо команди
+  if (rawInput.startsWith("/")) return;
 
-  // Очищаем юзернейм от символа @, если он есть
-  const cleanUsername = query.replace(/^@/, "").trim();
-
-  try {
-    // Ищем в БД одновременно по telegramUserId и по name (без учета регистра)
-    const record = await db.scammer.findFirst({
-      where: {
-        OR: [
-          { telegramUserId: query },
-          { telegramUserId: cleanUsername },
-          { name: { equals: cleanUsername, mode: "insensitive" } },
-          { name: { equals: query, mode: "insensitive" } },
-        ],
-      },
-    });
-
-    // Если ничего не найдено
-    if (!record) {
+  // Захист від спаму
+  if (userId) {
+    const { spam, timeLeft } = isSpamming(userId);
+    if (spam) {
       await ctx.reply(
-        "❌ **Ничего не найдено.**\nПользователь с такими данными отсутствует в базе.",
+        `⏳ **Пожалуйста, подождите ${timeLeft} сек.** перед следующим запросом.`,
         { parse_mode: "Markdown" }
       );
       return;
     }
+  }
 
-    // Форматируем дату
+  // Очищаємо юзернейм від символу @ для гнучкого пошуку
+  const cleanInput = rawInput.replace(/^@/, "").trim();
+
+  try {
+    // 1. Перевірка на 2 поля одразу (і як ID, і як Username, з @ або без)
+    const record = await db.scammer.findFirst({
+      where: {
+        OR: [
+          { telegramUserId: rawInput },
+          { telegramUserId: cleanInput },
+          { name: { equals: rawInput, mode: "insensitive" } },
+          { name: { equals: cleanInput, mode: "insensitive" } },
+        ],
+      },
+    });
+
+    // 4. Якщо скамера НЕ знайдено
+    if (!record) {
+      const displayTag = rawInput.startsWith("@") ? rawInput : `@${cleanInput}`;
+      await ctx.reply(
+        `❌ **Пользователь ${displayTag} (или ID: \`${cleanInput}\`) не найден в базе.**\n\n` +
+          `Добавить скамера в базу или проверить других можно на нашем сайте:\n` +
+          `🌐 https://frostscambase.vercel.app/`,
+        {
+          parse_mode: "Markdown",
+          link_preview_options: { is_disabled: true },
+        }
+      );
+      return;
+    }
+
+    // Форматування дати
     const dateToFormat = record.updatedAt || record.createdAt || new Date();
     const formattedDate = new Date(dateToFormat).toLocaleDateString("ru-RU", {
       day: "2-digit",
@@ -60,30 +112,40 @@ bot.on("message:text", async (ctx) => {
       minute: "2-digit",
     });
 
-    // Формируем текст ответа под твои поля
-    const responseText =
-      `🚨 **Запись найдена в базе!**\n\n` +
-      `👤 **Имя / Юзернейм:** ${record.name || "Не указано"}\n` +
-      `🆔 **Telegram ID:** \`${record.telegramUserId || "Не указан"}\` \n` +
-      `📌 **Тип:** ${record.scammerType || "Не указан"}\n` +
-      `📊 **Статус:** ${record.status || "scam"}\n` +
-      `📅 **Дата обновления:** ${formattedDate}\n\n` +
-      `📝 **Описание:**\n${record.description || "Описание отсутствует"}\n\n` +
-      `🔗 **Пруфы:** ${record.proofLink || "Пруфы не предоставлены"}`;
+    // Форматування Юзернейму з @
+    let usernameDisplay = "Не указан";
+    if (record.name) {
+      usernameDisplay = record.name.startsWith("@") ? record.name : `@${record.name}`;
+    }
 
-    await ctx.reply(responseText, { 
+    // 3. Якщо знайдено — виводимо повну інформацію
+    const responseText =
+      `🚨 **Информация о нарушителе:**\n\n` +
+      `👤 **Юзернейм:** ${usernameDisplay}\n` +
+      `🆔 **ID:** \`${record.telegramUserId || "Не указан"}\` \n` +
+      `📊 **Статус:** ${getStatusEmoji(record.status)}\n` +
+      `📝 **Описание:** ${record.description || "Описание отсутствует"}\n` +
+      `📅 **Дата добавления:** ${formattedDate}\n` +
+      `🧾 **Пруфы:** ${record.proofLink || "Пруфы не предоставлены"}\n\n` +
+      `───────────────\n` +
+      `🌐 **Наш сайт:** https://frostscambase.vercel.app/\n` +
+      `💬 **Наш чат:** @wocmf\n` +
+      `❤️ **Поддержать проект:** t.me/send?start=IVkrkNlUFFtA\n\n` +
+      `💡 *Добавить скамера, посмотреть других скамеров или проверенных ботов можно на нашем сайте!*`;
+
+    await ctx.reply(responseText, {
       parse_mode: "Markdown",
-      link_preview_options: { is_disabled: false } 
+      link_preview_options: { is_disabled: false },
     });
   } catch (error) {
-    console.error("Ошибка работы с БД:", error);
+    console.error("Ошибка при поиске:", error);
     await ctx.reply("⚠️ **Произошла ошибка при поиске в базе данных.**", {
       parse_mode: "Markdown",
     });
   }
 });
 
-// Настройка Webhook для Vercel / Next.js
+// Налаштування Webhook для Vercel / Next.js App Router
 const handleWebhook = webhookCallback(bot, "std/http", {
   onNotHandled: "return",
 });
@@ -95,4 +157,4 @@ export async function POST(req: NextRequest) {
     console.error("Ошибка Webhook:", err);
     return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
   }
-}*/
+}
