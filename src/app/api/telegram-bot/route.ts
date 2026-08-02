@@ -19,7 +19,7 @@ function getUserLanguage(userId?: number, telegramLangCode?: string): SupportedL
   if (userId && userLanguages.has(userId)) {
     return userLanguages.get(userId)!;
   }
-  
+
   // 2. Визначення за мовою Telegram-клієнта користувача
   if (telegramLangCode) {
     const code = telegramLangCode.toLowerCase();
@@ -30,6 +30,20 @@ function getUserLanguage(userId?: number, telegramLangCode?: string): SupportedL
   }
 
   return "ua"; // Мова за замовчуванням
+}
+
+// ----------------------------------------------------------------------
+// Екранування Markdown (виправляє помилки Telegram API "can't parse entities")
+// ----------------------------------------------------------------------
+// У legacy режимі "Markdown" зарезервовані символи: _ * ` [
+// Якщо в тексті (юзернейм, опис, посилання, статус) трапляється непарний
+// такий символ (наприклад @user_qwe), Telegram кидає помилку парсингу
+// і бот падає в catch. Тому будь-який динамічний (не наш власний) текст
+// перед вставкою в повідомлення з parse_mode: "Markdown" ОБОВ'ЯЗКОВО
+// треба екранувати.
+function escapeMarkdown(text: string | null | undefined): string {
+  if (!text) return "";
+  return text.replace(/([_*`[])/g, "\\$1");
 }
 
 // ----------------------------------------------------------------------
@@ -130,8 +144,10 @@ function getFormattedStatus(status?: string | null, lang: SupportedLang = "ua"):
     case "scambot":
       return "scam bot";
 
+    // ВАЖЛИВО: тут статус може прийти прямо з бази (довільний текст),
+    // тому його теж треба екранувати перед вставкою в Markdown-повідомлення.
     default:
-      return `📌 ${status}`;
+      return `📌 ${escapeMarkdown(status)}`;
   }
 }
 
@@ -208,7 +224,7 @@ bot.on("message:text", async (ctx) => {
       if (userLang === "ru") spamMsg = `⏳ **Пожалуйста, подождите ${timeLeft} сек.** перед следующим запросом.`;
       if (userLang === "pl") spamMsg = `⏳ **Proszę czekać ${timeLeft} sek.** przed wysłaniem kolejnego zapytania.`;
       if (userLang === "en") spamMsg = `⏳ **Please wait ${timeLeft} sec.** before sending another request.`;
-      
+
       await ctx.reply(spamMsg, { parse_mode: "Markdown" });
       return;
     }
@@ -217,55 +233,64 @@ bot.on("message:text", async (ctx) => {
   // Очистка та перевірка типу введення
   const withoutAt = rawInput.replace(/^@/, "").trim();
   const withAt = `@${withoutAt}`;
-  
-  // Перевіряємо, чи ввів користувач суто цифри (ID)
+
+  // Перевіряємо, чи ввів користувач суто цифри (ID), незалежно від "@" на початку
   const isNumericInput = /^\d+$/.test(withoutAt);
 
   try {
-    // 🔍 БЕЗПЕЧНИЙ ПОШУК В БАЗІ NEON (Без збоїв типізації)
-    const searchConditions: any[] = [
-      { name: { equals: rawInput, mode: "insensitive" } },
-      { name: { equals: withoutAt, mode: "insensitive" } },
-      { name: { equals: withAt, mode: "insensitive" } },
-    ];
+    let record = null;
 
-    // Додаємо пошук по ID ТІЛЬКИ якщо введено цифри
+    // ВИПРАВЛЕННЯ БАГА №2:
+    // Якщо ввели чисто цифри (з "@" чи без) — це ID, і шукати треба
+    // САМЕ по telegramUserId, окремим запитом, а не в спільному OR
+    // разом з полем name. Інакше Prisma/findFirst може повернути
+    // "випадковий" запис, де name випадково збігся з цим рядком,
+    // замість реального власника цього ID.
     if (isNumericInput) {
-      searchConditions.push(
-        { telegramUserId: rawInput },
-        { telegramUserId: withoutAt }
-      );
+      record = await db.scammer.findFirst({
+        where: {
+          OR: [{ telegramUserId: withoutAt }, { telegramUserId: rawInput }],
+        },
+      });
     }
 
-    const record = await db.scammer.findFirst({
-      where: {
-        OR: searchConditions,
-      },
-    });
+    // Якщо по ID нічого не знайшли (або ввід не числовий) — шукаємо по юзернейму
+    if (!record) {
+      record = await db.scammer.findFirst({
+        where: {
+          OR: [
+            { name: { equals: rawInput, mode: "insensitive" } },
+            { name: { equals: withoutAt, mode: "insensitive" } },
+            { name: { equals: withAt, mode: "insensitive" } },
+          ],
+        },
+      });
+    }
 
     // Якщо НЕ знайдено
     if (!record) {
-      const displayTag = withAt;
+      const displayTag = escapeMarkdown(withAt);
+      const displayId = escapeMarkdown(withoutAt);
 
       let notFoundText = "";
       if (userLang === "ua") {
         notFoundText =
-          `❌ **Користувача ${displayTag} (або ID: \`${withoutAt}\`) не знайдено в базі.**\n\n` +
+          `❌ **Користувача ${displayTag} (або ID: \`${displayId}\`) не знайдено в базі.**\n\n` +
           `Додати скамера в базу або переглянути інших можна на нашому сайті:\n` +
           `🌐 https://frostscambase.vercel.app/`;
       } else if (userLang === "ru") {
         notFoundText =
-          `❌ **Пользователь ${displayTag} (или ID: \`${withoutAt}\`) не найден в базе.**\n\n` +
+          `❌ **Пользователь ${displayTag} (или ID: \`${displayId}\`) не найден в базе.**\n\n` +
           `Добавить скамера в базу или проверить других можно на нашем сайте:\n` +
           `🌐 https://frostscambase.vercel.app/`;
       } else if (userLang === "pl") {
         notFoundText =
-          `❌ **Użytkownik ${displayTag} (lub ID: \`${withoutAt}\`) nie został znaleziony w bazie danych.**\n\n` +
+          `❌ **Użytkownik ${displayTag} (lub ID: \`${displayId}\`) nie został znaleziony w bazie danych.**\n\n` +
           `Możesz zgłosić oszusta lub sprawdzić innych na naszej stronie:\n` +
           `🌐 https://frostscambase.vercel.app/`;
       } else {
         notFoundText =
-          `❌ **User ${displayTag} (or ID: \`${withoutAt}\`) was not found in the database.**\n\n` +
+          `❌ **User ${displayTag} (or ID: \`${displayId}\`) was not found in the database.**\n\n` +
           `You can report a scammer or search others on our website:\n` +
           `🌐 https://frostscambase.vercel.app/`;
       }
@@ -279,7 +304,7 @@ bot.on("message:text", async (ctx) => {
 
     // ➕ БЕЗПЕЧНЕ ОНОВЛЕННЯ ЛІЧИЛЬНИКА (Захист від null)
     const currentSearchCount = typeof record.searchCount === "number" ? record.searchCount : 0;
-    
+
     const updatedRecord = await db.scammer.update({
       where: { id: record.id },
       data: {
@@ -315,19 +340,29 @@ bot.on("message:text", async (ctx) => {
       usernameDisplay = updatedRecord.name.startsWith("@") ? updatedRecord.name : `@${updatedRecord.name}`;
     }
 
+    // ВИПРАВЛЕННЯ БАГА №1 і №3:
+    // Екрануємо ВСІ значення з бази даних (юзернейм, ID, опис, посилання),
+    // бо вони можуть містити символи _ * ` [ , які ламають Markdown-парсер
+    // Telegram і призводять до помилки "can't parse entities" -> бот падає
+    // в catch і показує "Сталася помилка".
+    const safeUsername = escapeMarkdown(usernameDisplay);
+    const safeId = escapeMarkdown(updatedRecord.telegramUserId || noNameText[userLang]);
+    const safeDescription = escapeMarkdown(updatedRecord.description);
+    const safeProofLink = escapeMarkdown(updatedRecord.proofLink);
+
     // Текст відповіді на 4 мовах
     let responseText = "";
 
     if (userLang === "ua") {
       responseText =
         `🚨 **Знайдено збіг у базі:**\n\n` +
-        `👤 **Юзернейм:** ${usernameDisplay}\n` +
-        `🆔 **ID:** \`${updatedRecord.telegramUserId || "Не вказано"}\` \n` +
+        `👤 **Юзернейм:** ${safeUsername}\n` +
+        `🆔 **ID:** \`${safeId}\` \n` +
         `📊 **Статус:** ${getFormattedStatus(updatedRecord.status, "ua")}\n` +
-        `📝 **Опис:** ${updatedRecord.description || "Опис відсутній"}\n` +
+        `📝 **Опис:** ${safeDescription || "Опис відсутній"}\n` +
         `👁 **Кількість переглядів:** ${updatedRecord.searchCount}\n` +
         `📅 **Дата додавання:** ${formattedDate}\n` +
-        `🧾 **Докази:** ${updatedRecord.proofLink || "Докази не надано"}\n\n` +
+        `🧾 **Докази:** ${safeProofLink || "Докази не надано"}\n\n` +
         `───────────────\n` +
         `🌐 **Наш сайт:** https://frostscambase.vercel.app/\n` +
         `💬 **Наш чат:** @wocmf\n` +
@@ -336,13 +371,13 @@ bot.on("message:text", async (ctx) => {
     } else if (userLang === "ru") {
       responseText =
         `🚨 **Найдено совпадение в базе:**\n\n` +
-        `👤 **Юзернейм:** ${usernameDisplay}\n` +
-        `🆔 **ID:** \`${updatedRecord.telegramUserId || "Не указан"}\` \n` +
+        `👤 **Юзернейм:** ${safeUsername}\n` +
+        `🆔 **ID:** \`${safeId}\` \n` +
         `📊 **Статус:** ${getFormattedStatus(updatedRecord.status, "ru")}\n` +
-        `📝 **Описание:** ${updatedRecord.description || "Описание отсутствует"}\n` +
+        `📝 **Описание:** ${safeDescription || "Описание отсутствует"}\n` +
         `👁 **Количество просмотров:** ${updatedRecord.searchCount}\n` +
         `📅 **Дата добавления:** ${formattedDate}\n` +
-        `🧾 **Пруфы:** ${updatedRecord.proofLink || "Пруфы не предоставлены"}\n\n` +
+        `🧾 **Пруфы:** ${safeProofLink || "Пруфы не предоставлены"}\n\n` +
         `───────────────\n` +
         `🌐 **Наш сайт:** https://frostscambase.vercel.app/\n` +
         `💬 **Наш чат:** @wocmf\n` +
@@ -351,13 +386,13 @@ bot.on("message:text", async (ctx) => {
     } else if (userLang === "pl") {
       responseText =
         `🚨 **Znaleziono wpis w bazie danych:**\n\n` +
-        `👤 **Nazwa użytkownika:** ${usernameDisplay}\n` +
-        `🆔 **ID:** \`${updatedRecord.telegramUserId || "Nie podano"}\` \n` +
+        `👤 **Nazwa użytkownika:** ${safeUsername}\n` +
+        `🆔 **ID:** \`${safeId}\` \n` +
         `📊 **Status:** ${getFormattedStatus(updatedRecord.status, "pl")}\n` +
-        `📝 **Opis:** ${updatedRecord.description || "Brak opisu"}\n` +
+        `📝 **Opis:** ${safeDescription || "Brak opisu"}\n` +
         `👁 **Liczba wyświetleń:** ${updatedRecord.searchCount}\n` +
         `📅 **Data dodania:** ${formattedDate}\n` +
-        `🧾 **Dowody:** ${updatedRecord.proofLink || "Brak dowodów"}\n\n` +
+        `🧾 **Dowody:** ${safeProofLink || "Brak dowodów"}\n\n` +
         `───────────────\n` +
         `🌐 **Nasza strona:** https://frostscambase.vercel.app/\n` +
         `💬 **Nasz czat:** @wocmf\n` +
@@ -366,13 +401,13 @@ bot.on("message:text", async (ctx) => {
     } else {
       responseText =
         `🚨 **Record found in database:**\n\n` +
-        `👤 **Username:** ${usernameDisplay}\n` +
-        `🆔 **ID:** \`${updatedRecord.telegramUserId || "Not specified"}\` \n` +
+        `👤 **Username:** ${safeUsername}\n` +
+        `🆔 **ID:** \`${safeId}\` \n` +
         `📊 **Status:** ${getFormattedStatus(updatedRecord.status, "en")}\n` +
-        `📝 **Description:** ${updatedRecord.description || "No description available"}\n` +
+        `📝 **Description:** ${safeDescription || "No description available"}\n` +
         `👁 **Search count:** ${updatedRecord.searchCount}\n` +
         `📅 **Date added:** ${formattedDate}\n` +
-        `🧾 **Proofs:** ${updatedRecord.proofLink || "No proof provided"}\n\n` +
+        `🧾 **Proofs:** ${safeProofLink || "No proof provided"}\n\n` +
         `───────────────\n` +
         `🌐 **Our Website:** https://frostscambase.vercel.app/\n` +
         `💬 **Our Chat:** @wocmf\n` +
