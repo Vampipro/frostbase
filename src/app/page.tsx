@@ -635,6 +635,44 @@ function ComplaintCard({ name }: { name: string }) {
   )
 }
 
+// Строит компактный список номеров страниц с многоточиями вместо простого
+// диапазона от 1 до totalPages (иначе при большом кол-ве страниц получается
+// «бесконечная» лента кнопок). Всегда показывает первую/последнюю страницу,
+// текущую ± siblingCount вокруг неё, и '...' на разрывах.
+function getPaginationRange(current: number, total: number, siblingCount = 1): (number | 'ellipsis')[] {
+  const totalNumbers = siblingCount * 2 + 5 // first, last, current, 2 ellipses
+  if (total <= totalNumbers) {
+    return Array.from({ length: total }, (_, i) => i + 1)
+  }
+
+  const leftSibling = Math.max(current - siblingCount, 1)
+  const rightSibling = Math.min(current + siblingCount, total)
+
+  const showLeftEllipsis = leftSibling > 2
+  const showRightEllipsis = rightSibling < total - 1
+
+  const range: (number | 'ellipsis')[] = [1]
+
+  if (showLeftEllipsis) {
+    range.push('ellipsis')
+  } else {
+    for (let p = 2; p < leftSibling; p++) range.push(p)
+  }
+
+  for (let p = Math.max(leftSibling, 2); p <= Math.min(rightSibling, total - 1); p++) {
+    range.push(p)
+  }
+
+  if (showRightEllipsis) {
+    range.push('ellipsis')
+  } else {
+    for (let p = rightSibling + 1; p < total; p++) range.push(p)
+  }
+
+  range.push(total)
+  return range
+}
+
 // ==================== SEARCH VIEW ====================
 function SearchView() {
   const { setSelectedScammer } = useAppStore()
@@ -652,7 +690,11 @@ function SearchView() {
   const [tagSearchTotal, setTagSearchTotal] = useState(0)
   const [tagSearchTotalPages, setTagSearchTotalPages] = useState(0)
   const [tagSearchPage, setTagSearchPage] = useState(1)
+  const [tagSearchLoading, setTagSearchLoading] = useState(false)
   const tagScrollRef = useRef<HTMLDivElement>(null)
+  // Счётчик запросов — защита от гонки: если ответ на устаревший запрос
+  // (например, за предыдущую страницу) прилетит позже свежего, он игнорируется.
+  const tagRequestIdRef = useRef(0)
 
   // Load all visible tags
   useEffect(() => {
@@ -665,24 +707,40 @@ function SearchView() {
   // Запрос к API с массивом выбранных тегов
   const fetchTagResults = useCallback(async (tags: Array<{ key: string }>, page = 1) => {
     if (tags.length === 0) {
+      tagRequestIdRef.current += 1
       setTagSearchResults(null)
       setTagSearchTotal(0)
       setTagSearchTotalPages(0)
       setTagSearchPage(1)
+      setTagSearchLoading(false)
       return
     }
+    // Не дублируем запрос на ту же самую страницу, пока предыдущий ещё грузится
+    if (tagSearchLoading && page === tagSearchPage) return
+
+    // Помечаем этот запрос как самый свежий — ответы на более ранние запросы
+    // (пришедшие позже из-за сетевой задержки) будут проигнорированы
+    const requestId = ++tagRequestIdRef.current
     setTagSearchPage(page)
+    setTagSearchLoading(true)
     try {
       const tagsParam = tags.map(t => t.key).join(',')
       const res = await fetch(`/api/scammers/by-tag?tags=${encodeURIComponent(tagsParam)}&page=${page}&limit=20`)
       const data = await res.json()
+      if (requestId !== tagRequestIdRef.current) return // устарел, игнорируем
       setTagSearchResults(data.results || [])
       setTagSearchTotal(data.total || 0)
       setTagSearchTotalPages(data.totalPages || 0)
     } catch {
-      toast.error('Ошибка поиска по статусам')
+      if (requestId === tagRequestIdRef.current) {
+        toast.error('Ошибка поиска по статусам')
+      }
+    } finally {
+      if (requestId === tagRequestIdRef.current) {
+        setTagSearchLoading(false)
+      }
     }
-  }, [])
+  }, [tagSearchLoading, tagSearchPage])
 
   // Toggle тега в наборе: клик по невыбранному — добавляет, клик по выбранному — убирает.
   // Если после убирания набор пуст — сбрасываем результаты.
@@ -707,11 +765,13 @@ function SearchView() {
   }, [allTags, fetchTagResults])
 
   const clearTagSearch = useCallback(() => {
+    tagRequestIdRef.current += 1 // отменяем любой ещё не завершившийся запрос
     setSelectedTags([])
     setTagSearchResults(null)
     setTagSearchTotal(0)
     setTagSearchTotalPages(0)
     setTagSearchPage(1)
+    setTagSearchLoading(false)
   }, [])
 
   // Прокрутка карусели тегов стрелками (для десктопа)
@@ -1075,24 +1135,34 @@ function SearchView() {
                 <ChevronLeft className="w-4 h-4" />
               </motion.button>
               <div className="flex items-center gap-1.5 flex-wrap justify-center max-w-[280px]">
-                {Array.from({ length: tagSearchTotalPages }, (_, idx) => idx + 1).map(p => (
-                  <motion.button
-                    key={p}
-                    whileHover={{ scale: 1.1 }}
-                    whileTap={{ scale: 0.9 }}
-                    onClick={() => fetchTagResults(selectedTags, p)}
-                    className="w-7 h-7 rounded-lg flex items-center justify-center text-[11px] font-bold transition-all"
-                    style={p === tagSearchPage ? {
-                      backgroundColor: 'var(--primary)',
-                      color: '#fff',
-                      boxShadow: `0 2px 10px var(--primary)55`,
-                    } : {
-                      color: 'var(--muted-foreground)',
-                    }}
-                  >
-                    {p}
-                  </motion.button>
-                ))}
+                {getPaginationRange(tagSearchPage, tagSearchTotalPages).map((p, idx) =>
+                  p === 'ellipsis' ? (
+                    <span
+                      key={`ellipsis-${idx}`}
+                      className="w-7 h-7 flex items-center justify-center text-[11px] text-muted-foreground/50 select-none"
+                    >
+                      …
+                    </span>
+                  ) : (
+                    <motion.button
+                      key={p}
+                      whileHover={{ scale: 1.1 }}
+                      whileTap={{ scale: 0.9 }}
+                      disabled={p === tagSearchPage || tagSearchLoading}
+                      onClick={() => fetchTagResults(selectedTags, p)}
+                      className="w-7 h-7 rounded-lg flex items-center justify-center text-[11px] font-bold transition-all disabled:cursor-default"
+                      style={p === tagSearchPage ? {
+                        backgroundColor: 'var(--primary)',
+                        color: '#fff',
+                        boxShadow: `0 2px 10px var(--primary)55`,
+                      } : {
+                        color: 'var(--muted-foreground)',
+                      }}
+                    >
+                      {p}
+                    </motion.button>
+                  )
+                )}
               </div>
               <motion.button
                 whileHover={{ scale: 1.08 }}
