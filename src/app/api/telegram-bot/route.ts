@@ -311,7 +311,7 @@ async function getStatusMap(): Promise<Map<string, { label: string; color: strin
     statusCache = { data: map, ts: now };
     return map;
   } catch {
-    // fallback map
+    // fallback map with all languages
     const fallback = new Map<string, { label: string; color: string }>();
     fallback.set("scam", { label: "SCAM", color: "#ef4444" });
     fallback.set("verified", { label: "Перевірено", color: "#22c55e" });
@@ -499,14 +499,26 @@ function setupBot(bot: Bot) {
         take: 10,
       });
       if (top.length === 0) {
-        await ctx.reply("Пока пусто", { parse_mode: "HTML" });
+        const emptyMsg: Record<SupportedLang, string> = {
+          ua: "📭 Поки що пусто",
+          ru: "📭 Пока что пусто",
+          en: "📭 Empty for now",
+          pl: "📭 Na razie pusto",
+        };
+        await ctx.reply(emptyMsg[lang], { parse_mode: "HTML" });
         return;
       }
       let msg = `${t[lang].topHeader}\n\n`;
+      const searchesLabel: Record<SupportedLang, string> = {
+        ua: "пошуків",
+        ru: "поисков",
+        en: "searches",
+        pl: "wyszukiwań",
+      };
       top.forEach((s, i) => {
         const medal = i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : `${i + 1}.`;
         const name = escapeHtml(s.name);
-        msg += `${medal} ${name} — <b>${s.searchCount}</b> поисков\n`;
+        msg += `${medal} ${name} — <b>${s.searchCount}</b> ${searchesLabel[lang]}\n`;
       });
       await ctx.reply(msg, {
         parse_mode: "HTML",
@@ -585,7 +597,13 @@ function setupBot(bot: Bot) {
       else if (fwdUsername) await handleSearch(ctx, `@${fwdUsername}`);
     } else if (origin.type === "hidden_user") {
       const lang = getUserLanguage(ctx.from?.id, ctx.from?.language_code);
-      await ctx.reply("⚠️ Автор скрыт настройками приватности, перешлите @username или ID", {
+      const hiddenMsg: Record<SupportedLang, string> = {
+        ua: "⚠️ Автор скрыт настройками приватности, перешлите @username или ID",
+        ru: "⚠️ Автор скрыт настройками приватности, перешлите @username или ID",
+        en: "⚠️ Author is hidden by privacy settings, forward @username or ID",
+        pl: "⚠️ Autor ukryty w ustawieniach prywatności, prześlij @username lub ID",
+      };
+      await ctx.reply(hiddenMsg[lang], {
         parse_mode: "HTML",
       });
     }
@@ -595,19 +613,30 @@ function setupBot(bot: Bot) {
   bot.on("inline_query", async (ctx) => {
     const query = ctx.inlineQuery.query.trim();
     if (!query || query.length < 2) return;
+    const lang = getUserLanguage(ctx.from?.id, ctx.from?.language_code);
     const parsed = parseInput(query);
     const results = await searchScammers(parsed, 8);
+    
+    const inlineLabels: Record<SupportedLang, { views: string; status: string; noId: string; openSite: string; checkTitle: string }> = {
+      ua: { views: "пошуків", status: "Статус", noId: "без ID", openSite: "🌐 Відкрити на сайті", checkTitle: "🔍 Перевірка" },
+      ru: { views: "поисков", status: "Статус", noId: "без ID", openSite: "🌐 Открыть на сайте", checkTitle: "🔍 Проверка" },
+      en: { views: "views", status: "Status", noId: "no ID", openSite: "🌐 Open on site", checkTitle: "🔍 Check" },
+      pl: { views: "wyszukiwań", status: "Status", noId: "bez ID", openSite: "🌐 Otwórz na stronie", checkTitle: "🔍 Sprawdzenie" },
+    };
+    
+    const lbl = inlineLabels[lang];
+    
     const articles = results.map((s, i) => ({
       type: "article",
       id: s.id,
       title: s.name,
-      description: `${s.status} • ${s.searchCount} пошуків • ${s.telegramUserId || "без ID"}`,
+      description: `${s.status} • ${s.searchCount} ${lbl.views} • ${s.telegramUserId || lbl.noId}`,
       input_message_content: {
-        message_text: `🔍 Перевірка: ${s.name}\nID: ${s.telegramUserId || "—"}\nСтатус: ${s.status}\n\nДетальніше: https://frostscambase.vercel.app/?q=${encodeURIComponent(s.name)}`,
+        message_text: `${lbl.checkTitle}: ${s.name}\nID: ${s.telegramUserId || "—"}\n${lbl.status}: ${s.status}\n\nДетальніше: https://frostscambase.vercel.app/?q=${encodeURIComponent(s.name)}`,
       },
       reply_markup: {
         inline_keyboard: [
-          [{ text: "🌐 Відкрити на сайті", url: `https://frostscambase.vercel.app/?q=${encodeURIComponent(s.name)}` }],
+          [{ text: lbl.openSite, url: `https://frostscambase.vercel.app/?q=${encodeURIComponent(s.name)}` }],
         ],
       },
     }));
@@ -640,7 +669,13 @@ async function handleSearch(ctx: any, rawInput: string, forcedLang?: SupportedLa
 
   const parsed = parseInput(rawInput);
   if (!parsed.raw || (!parsed.username && !parsed.id && !parsed.cleanName)) {
-    await ctx.reply("ℹ️ Отправьте @username или ID для проверки", { parse_mode: "HTML" });
+    const noInputMsg: Record<SupportedLang, string> = {
+      ua: "ℹ️ Надішліть @username або ID для перевірки",
+      ru: "ℹ️ Отправьте @username или ID для проверки",
+      en: "ℹ️ Send @username or ID to check",
+      pl: "ℹ️ Wyślij @username lub ID do sprawdzenia",
+    };
+    await ctx.reply(noInputMsg[lang], { parse_mode: "HTML" });
     return;
   }
 
@@ -751,20 +786,29 @@ async function sendScammerCard(ctx: any, scammer: any, lang: SupportedLang) {
   const likeCount = scammer.likeCount ?? 0;
   const dislikeCount = scammer.dislikeCount ?? 0;
 
+  const cardLabels: Record<SupportedLang, { username: string; id: string; status: string; desc: string; site: string; chat: string; proofs: string }> = {
+    ua: { username: "Юзернейм", id: "ID", status: "Статус", desc: "Опис", site: "Сайт", chat: "Чат", proofs: "Пруфи" },
+    ru: { username: "Юзернейм", id: "ID", status: "Статус", desc: "Описание", site: "Сайт", chat: "Чат", proofs: "Пруфы" },
+    en: { username: "Username", id: "ID", status: "Status", desc: "Description", site: "Site", chat: "Chat", proofs: "Proofs" },
+    pl: { username: "Nazwa użytkownika", id: "ID", status: "Status", desc: "Opis", site: "Strona", chat: "Czat", proofs: "Dowody" },
+  };
+
+  const lbl = cardLabels[lang];
+
   let text = `${t[lang].foundHeader}\n\n`;
-  text += `👤 <b>Юзернейм:</b> ${safeName}\n`;
-  text += `🆔 <b>ID:</b> <code>${safeId}</code>\n`;
-  text += `📊 <b>Статус:</b> ${emoji} ${escapeHtml(statusLabel)}\n`;
+  text += `👤 <b>${lbl.username}:</b> ${safeName}\n`;
+  text += `🆔 <b>${lbl.id}:</b> <code>${safeId}</code>\n`;
+  text += `📊 <b>${lbl.status}:</b> ${emoji} ${escapeHtml(statusLabel)}\n`;
   if (safeAmount) text += `${t[lang].amount}: <b>${safeAmount}</b>\n`;
   if (safeType) text += `${t[lang].type}: <b>${safeType}</b>\n`;
-  text += `📝 <b>Опис:</b> ${safeDesc}\n`;
+  text += `📝 <b>${lbl.desc}:</b> ${safeDesc}\n`;
   text += `${t[lang].searchCount}: <b>${searchCount}</b>\n`;
   text += `👍 ${likeCount} / 👎 ${dislikeCount}\n`;
   text += `${t[lang].addedDate}: <b>${formattedDate}</b>\n`;
-  if (safeProof) text += `🧾 <b>Пруфы:</b> ${safeProof ? `<a href="${escapeHtml(scammer.proofLink)}">link</a>` : "—"}\n`;
+  if (safeProof) text += `🧾 <b>${lbl.proofs}:</b> ${safeProof ? `<a href="${escapeHtml(scammer.proofLink)}">link</a>` : "—"}\n`;
   text += `\n───────────────\n`;
-  text += `🌐 <b>Сайт:</b> https://frostscambase.vercel.app/\n`;
-  text += `💬 <b>Чат:</b> @wocmf\n`;
+  text += `🌐 <b>${lbl.site}:</b> https://frostscambase.vercel.app/\n`;
+  text += `💬 <b>${lbl.chat}:</b> @wocmf\n`;
 
   const kb = new InlineKeyboard()
     .url(t[lang].btnOpenSite, `https://frostscambase.vercel.app/?q=${encodeURIComponent(scammer.name)}`)
