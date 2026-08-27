@@ -944,7 +944,7 @@ async function sendBotsList(ctx: any, lang: SupportedLang, page: number, isEdit 
 
     const where = {
       status: "verified",
-      scammerType: { contains: "bot", mode: "insensitive" as const },
+      scammerType: { contains: "Бот", mode: "insensitive" as const },
     };
 
     const [total, items] = await Promise.all([
