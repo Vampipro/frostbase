@@ -314,10 +314,10 @@ async function getStatusMap(): Promise<Map<string, { label: string; color: strin
     // fallback map
     const fallback = new Map<string, { label: string; color: string }>();
     fallback.set("scam", { label: "SCAM", color: "#ef4444" });
-    fallback.set("verified", { label: "Проверен", color: "#22c55e" });
-    fallback.set("suspicious", { label: "Подозрительно", color: "#f59e0b" });
-    fallback.set("no_rewards", { label: "Не выводит", color: "#ef4444" });
-    fallback.set("admin", { label: "Админ", color: "#3b82f6" });
+    fallback.set("verified", { label: "Перевірено", color: "#22c55e" });
+    fallback.set("suspicious", { label: "Підозріло", color: "#f59e0b" });
+    fallback.set("no_rewards", { label: "Не виводить", color: "#ef4444" });
+    fallback.set("admin", { label: "Адмін", color: "#3b82f6" });
     return fallback;
   }
 }
@@ -436,14 +436,19 @@ function setupBot(bot: Bot) {
 
   bot.command("check", async (ctx) => {
     const args = ctx.match as string;
+    const lang = getUserLanguage(ctx.from?.id, ctx.from?.language_code);
     if (!args?.trim()) {
-      const lang = getUserLanguage(ctx.from?.id, ctx.from?.language_code);
-      await ctx.reply(`ℹ️ Используй: /check @username или /check 123456789`, { parse_mode: "HTML" });
+      const translations: Record<SupportedLang, string> = {
+        ua: "ℹ️ Використовуй: /check @username або /check 123456789",
+        ru: "ℹ️ Используй: /check @username или /check 123456789",
+        en: "ℹ️ Use: /check @username or /check 123456789",
+        pl: "ℹ️ Użyj: /check @username lub /check 123456789",
+      };
+      await ctx.reply(translations[lang], { parse_mode: "HTML" });
       return;
     }
     // Simulate text message
     ctx.message = { text: args.trim() } as any;
-    // @ts-ignore call handler manually? Instead just duplicate logic by emitting
     // For simplicity, reuse handleSearch function below
     await handleSearch(ctx, args.trim());
   });
@@ -464,11 +469,11 @@ function setupBot(bot: Bot) {
 
       const msg = `${t[lang].statsHeader}
 
-👤 Всего скамеров: <b>${totalScammers}</b>
-  └ 🚫 Скам: ${scamCount}
-  └ ✅ Проверено: ${verifiedCount}
-👥 Пользователей: <b>${totalUsers}</b>
-🔍 Поисков сегодня: <b>${searchesToday}</b>
+👤 ${lang === "ua" ? "Всього скамерів" : lang === "en" ? "Total scammers" : lang === "pl" ? "Łącznie oszustów" : "Всего скамеров"}: <b>${totalScammers}</b>
+  └ 🚫 ${lang === "ua" ? "Скам" : lang === "en" ? "Scam" : lang === "pl" ? "Oszustwa" : "Скам"}: ${scamCount}
+  └ ✅ ${lang === "ua" ? "Перевірено" : lang === "en" ? "Verified" : lang === "pl" ? "Zweryfikowano" : "Перевірено"}: ${verifiedCount}
+👥 ${lang === "ua" ? "Користувачів" : lang === "en" ? "Users" : lang === "pl" ? "Użytkowników" : "Користувачів"}: <b>${totalUsers}</b>
+🔍 ${lang === "ua" ? "Пошуків сьогодні" : lang === "en" ? "Searches today" : lang === "pl" ? "Wyszukiwań dzisiaj" : "Пошуків сьогодні"}: <b>${searchesToday}</b>
 
 🌐 Сайт: https://frostscambase.vercel.app/`;
 
@@ -557,11 +562,11 @@ function setupBot(bot: Bot) {
   bot.on("message:contact", async (ctx) => {
     const contact = ctx.message.contact;
     const userId = contact.user_id;
-    const lang = getUserLanguage(ctx.from?.id, ctx.from?.language_code);
     if (userId) {
-      await handleSearch(ctx, String(userId), lang);
+      await handleSearch(ctx, String(userId));
     } else {
-      await ctx.reply("❌ У контакта нет Telegram ID", { parse_mode: "HTML" });
+      const lang = getUserLanguage(ctx.from?.id, ctx.from?.language_code);
+      await ctx.reply(t[lang].error || "❌ У контакта нет Telegram ID", { parse_mode: "HTML" });
     }
   });
 
@@ -570,16 +575,16 @@ function setupBot(bot: Bot) {
     // @ts-ignore grammy types
     const origin = ctx.message.forward_origin;
     if (!origin) return;
-    const lang = getUserLanguage(ctx.from?.id, ctx.from?.language_code);
     // @ts-ignore
     if (origin.type === "user") {
       // @ts-ignore
       const fwdId = origin.sender_user?.id;
       // @ts-ignore
       const fwdUsername = origin.sender_user?.username;
-      if (fwdId) await handleSearch(ctx, String(fwdId), lang);
-      else if (fwdUsername) await handleSearch(ctx, `@${fwdUsername}`, lang);
+      if (fwdId) await handleSearch(ctx, String(fwdId));
+      else if (fwdUsername) await handleSearch(ctx, `@${fwdUsername}`);
     } else if (origin.type === "hidden_user") {
+      const lang = getUserLanguage(ctx.from?.id, ctx.from?.language_code);
       await ctx.reply("⚠️ Автор скрыт настройками приватности, перешлите @username или ID", {
         parse_mode: "HTML",
       });
@@ -596,13 +601,13 @@ function setupBot(bot: Bot) {
       type: "article",
       id: s.id,
       title: s.name,
-      description: `${s.status} • ${s.searchCount} поисков • ${s.telegramUserId || "без ID"}`,
+      description: `${s.status} • ${s.searchCount} пошуків • ${s.telegramUserId || "без ID"}`,
       input_message_content: {
-        message_text: `🔍 Проверка: ${s.name}\nID: ${s.telegramUserId || "—"}\nСтатус: ${s.status}\n\nПодробнее: https://frostscambase.vercel.app/?q=${encodeURIComponent(s.name)}`,
+        message_text: `🔍 Перевірка: ${s.name}\nID: ${s.telegramUserId || "—"}\nСтатус: ${s.status}\n\nДетальніше: https://frostscambase.vercel.app/?q=${encodeURIComponent(s.name)}`,
       },
       reply_markup: {
         inline_keyboard: [
-          [{ text: "🌐 Открыть на сайте", url: `https://frostscambase.vercel.app/?q=${encodeURIComponent(s.name)}` }],
+          [{ text: "🌐 Відкрити на сайті", url: `https://frostscambase.vercel.app/?q=${encodeURIComponent(s.name)}` }],
         ],
       },
     }));
@@ -614,8 +619,7 @@ function setupBot(bot: Bot) {
   bot.on("message:text", async (ctx) => {
     const raw = ctx.message.text.trim();
     if (raw.startsWith("/")) return; // commands handled elsewhere
-    const lang = getUserLanguage(ctx.from?.id, ctx.from?.language_code);
-    await handleSearch(ctx, raw, lang);
+    await handleSearch(ctx, raw);
   });
 }
 
@@ -780,7 +784,7 @@ async function sendScammerCard(ctx: any, scammer: any, lang: SupportedLang) {
     .url(t[lang].btnChat, "https://t.me/wocmf")
     .row()
     .url(t[lang].btnSupport, "https://t.me/send?start=IVkrkNlUFFtA")
-    .text("🌐 Language / Язык", "lang_ua");
+    .text("🌐 Language / Мова", "lang_ua");
 
   // If proof is image, send photo
   const isImage = scammer.proofLink && /\.(jpe?g|png|webp|gif|bmp|avif)(\?.*)?$/i.test(scammer.proofLink);
