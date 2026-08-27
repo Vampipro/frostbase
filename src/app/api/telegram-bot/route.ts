@@ -44,10 +44,13 @@ const t: Record<SupportedLang, Record<string, string>> = {
 
 <b>Команди:</b>
 /check username — швидка перевірка
+/bots — список верифікованих ботів
 /stats — статистика бази
 /top — топ-10 скамерів
 /lang — змінити мову
 /help — ця довідка
+
+<i>💡 У групових чатах: /check @username, /check ID, або дайте reply на повідомлення учасника і напишіть /check — бот перевірить його ID.</i>
 
 🌐 Сайт: https://frostscambase.vercel.app/
 💬 Чат: @wocmf`,
@@ -76,6 +79,13 @@ const t: Record<SupportedLang, Record<string, string>> = {
     btnCheckMore: "🔎 Перевірити ще",
     btnAddScam: "➕ Додати скамера",
     btnAppeal: "⚖️ Апелювати",
+    btnDetails: "🔎 Детальніше",
+    btnPrev: "⬅️ Назад",
+    btnNext: "➡️ Далі",
+    botsHeader: "🤖 <b>Верифіковані боти</b>",
+    botsEmpty: "📭 Ботів зі статусом «Перевірено» поки не знайдено",
+    botsPage: "Сторінка {page}/{total}",
+    botsAdded: "Додано",
   },
   ru: {
     chooseLang: "👋 <b>Оберіть мову / Выберите язык / Choose language / Wybierz język:</b>",
@@ -91,10 +101,13 @@ const t: Record<SupportedLang, Record<string, string>> = {
 
 <b>Команды:</b>
 /check username — быстрая проверка
+/bots — список верифицированных ботов
 /stats — статистика
 /top — топ-10
 /lang — смена языка
 /help — справка
+
+<i>💡 В групповых чатах: /check @username, /check ID, или сделайте reply на сообщение участника и напишите /check — бот проверит его ID.</i>
 
 🌐 Сайт: https://frostscambase.vercel.app/
 💬 Чат: @wocmf`,
@@ -123,6 +136,13 @@ const t: Record<SupportedLang, Record<string, string>> = {
     btnCheckMore: "🔎 Проверить еще",
     btnAddScam: "➕ Добавить скамера",
     btnAppeal: "⚖️ Апелляция",
+    btnDetails: "🔎 Подробнее",
+    btnPrev: "⬅️ Назад",
+    btnNext: "➡️ Далее",
+    botsHeader: "🤖 <b>Верифицированные боты</b>",
+    botsEmpty: "📭 Ботов со статусом «Проверено» пока не найдено",
+    botsPage: "Страница {page}/{total}",
+    botsAdded: "Добавлен",
   },
   en: {
     chooseLang: "👋 <b>Choose language / Оберіть мову / Выберите язык / Wybierz język:</b>",
@@ -138,10 +158,13 @@ const t: Record<SupportedLang, Record<string, string>> = {
 
 <b>Commands:</b>
 /check username — quick check
+/bots — list of verified bots
 /stats — stats
 /top — top 10
 /lang — change language
 /help — help
+
+<i>💡 In group chats: /check @username, /check ID, or reply to a member's message and send /check — the bot will check their ID.</i>
 
 🌐 Site: https://frostscambase.vercel.app/
 💬 Chat: @wocmf`,
@@ -170,6 +193,13 @@ What to do?
     btnCheckMore: "🔎 Check more",
     btnAddScam: "➕ Add scammer",
     btnAppeal: "⚖️ Appeal",
+    btnDetails: "🔎 Details",
+    btnPrev: "⬅️ Back",
+    btnNext: "➡️ Next",
+    botsHeader: "🤖 <b>Verified bots</b>",
+    botsEmpty: "📭 No bots with «Verified» status found yet",
+    botsPage: "Page {page}/{total}",
+    botsAdded: "Added",
   },
   pl: {
     chooseLang: "👋 <b>Wybierz język / Оберіть мову / Выберите язык / Choose language:</b>",
@@ -184,10 +214,13 @@ What to do?
 
 <b>Komendy:</b>
 /check username — sprawdź
+/bots — lista zweryfikowanych botów
 /stats — statystyki
 /top — top 10
 /lang — zmień język
 /help — pomoc
+
+<i>💡 W czatach grupowych: /check @username, /check ID, lub odpowiedz (reply) na wiadomość uczestnika i wyślij /check — bot sprawdzi jego ID.</i>
 
 🌐 Strona: https://frostscambase.vercel.app/
 💬 Czat: @wocmf`,
@@ -216,6 +249,13 @@ Co robić?
     btnCheckMore: "🔎 Sprawdź więcej",
     btnAddScam: "➕ Dodaj oszusta",
     btnAppeal: "⚖️ Apelacja",
+    btnDetails: "🔎 Szczegóły",
+    btnPrev: "⬅️ Wstecz",
+    btnNext: "➡️ Dalej",
+    botsHeader: "🤖 <b>Zweryfikowane boty</b>",
+    botsEmpty: "📭 Nie znaleziono jeszcze botów ze statusem «Zweryfikowano»",
+    botsPage: "Strona {page}/{total}",
+    botsAdded: "Dodano",
   },
 };
 
@@ -229,7 +269,7 @@ function getUserLanguage(userId?: number, telegramLangCode?: string): SupportedL
     if (code.startsWith("pl")) return "pl";
     if (code.startsWith("uk") || code.startsWith("ua")) return "ua";
   }
-  return "ua";
+  return "en";
 }
 
 function escapeHtml(text: string | null | undefined): string {
@@ -435,22 +475,53 @@ function setupBot(bot: Bot) {
   });
 
   bot.command("check", async (ctx) => {
-    const args = ctx.match as string;
+    const args = (ctx.match as string)?.trim();
     const lang = getUserLanguage(ctx.from?.id, ctx.from?.language_code);
-    if (!args?.trim()) {
+
+    // /check as a reply to a participant's message (works in groups too):
+    // takes the replied-to user's id/username, no args needed.
+    const repliedUser = ctx.message?.reply_to_message?.from;
+    if (!args && repliedUser) {
+      if (repliedUser.is_bot && !repliedUser.username) {
+        const botNoIdMsg: Record<SupportedLang, string> = {
+          ua: "ℹ️ Не можу перевірити цього бота — немає юзернейму",
+          ru: "ℹ️ Не могу проверить этого бота — нет юзернейма",
+          en: "ℹ️ Can't check this bot — no username",
+          pl: "ℹ️ Nie mogę sprawdzić tego bota — brak nazwy użytkownika",
+        };
+        await ctx.reply(botNoIdMsg[lang], { parse_mode: "HTML" });
+        return;
+      }
+      const query = repliedUser.username ? `@${repliedUser.username}` : String(repliedUser.id);
+      await handleSearch(ctx, query);
+      return;
+    }
+
+    if (!args) {
       const translations: Record<SupportedLang, string> = {
-        ua: "ℹ️ Використовуй: /check @username або /check 123456789",
-        ru: "ℹ️ Используй: /check @username или /check 123456789",
-        en: "ℹ️ Use: /check @username or /check 123456789",
-        pl: "ℹ️ Użyj: /check @username lub /check 123456789",
+        ua: "ℹ️ Використовуй: /check @username або /check 123456789\n\nАбо зроби reply на повідомлення учасника і напиши /check — перевіримо його ID.",
+        ru: "ℹ️ Используй: /check @username или /check 123456789\n\nИли сделай reply на сообщение участника и напиши /check — проверим его ID.",
+        en: "ℹ️ Use: /check @username or /check 123456789\n\nOr reply to a member's message and send /check — we'll check their ID.",
+        pl: "ℹ️ Użyj: /check @username lub /check 123456789\n\nLub odpowiedz (reply) na wiadomość uczestnika i wyślij /check — sprawdzimy jego ID.",
       };
       await ctx.reply(translations[lang], { parse_mode: "HTML" });
       return;
     }
-    // Simulate text message
-    ctx.message = { text: args.trim() } as any;
-    // For simplicity, reuse handleSearch function below
-    await handleSearch(ctx, args.trim());
+
+    await handleSearch(ctx, args);
+  });
+
+  // /bots — paginated list of verified bots
+  bot.command("bots", async (ctx) => {
+    const lang = getUserLanguage(ctx.from?.id, ctx.from?.language_code);
+    await sendBotsList(ctx, lang, 1);
+  });
+
+  bot.callbackQuery(/^bots_page_(\d+)$/, async (ctx) => {
+    const page = parseInt(ctx.match[1], 10) || 1;
+    const lang = getUserLanguage(ctx.from?.id, ctx.from?.language_code);
+    await ctx.answerCallbackQuery();
+    await sendBotsList(ctx, lang, page, true);
   });
 
   bot.command("stats", async (ctx) => {
@@ -644,8 +715,11 @@ function setupBot(bot: Bot) {
     await ctx.answerInlineQuery(articles, { cache_time: 10 });
   });
 
-  // Main text handler
+  // Main text handler — only in private chats.
+  // In groups/supergroups the bot only responds to explicit commands
+  // (/check, /bots, etc.) to avoid triggering a search on every message.
   bot.on("message:text", async (ctx) => {
+    if (ctx.chat?.type !== "private") return;
     const raw = ctx.message.text.trim();
     if (raw.startsWith("/")) return; // commands handled elsewhere
     await handleSearch(ctx, raw);
@@ -857,6 +931,88 @@ async function sendScammerCard(ctx: any, scammer: any, lang: SupportedLang) {
       reply_markup: finalKb,
       link_preview_options: { is_disabled: true },
     });
+  }
+}
+
+// ==================== BOTS LIST (verified bots) ====================
+async function sendBotsList(ctx: any, lang: SupportedLang, page: number, isEdit = false) {
+  const PAGE_SIZE = 10;
+  try {
+    if (!isEdit) {
+      await ctx.replyWithChatAction("typing").catch(() => {});
+    }
+
+    const where = {
+      status: "verified",
+      scammerType: { contains: "bot", mode: "insensitive" as const },
+    };
+
+    const [total, items] = await Promise.all([
+      db.scammer.count({ where }),
+      db.scammer.findMany({
+        where,
+        orderBy: [{ createdAt: "desc" }],
+        skip: Math.max(0, (page - 1) * PAGE_SIZE),
+        take: PAGE_SIZE,
+      }),
+    ]);
+
+    if (total === 0) {
+      const text = t[lang].botsEmpty;
+      if (isEdit) {
+        await ctx.editMessageText(text, { parse_mode: "HTML" }).catch(() => ctx.reply(text, { parse_mode: "HTML" }));
+      } else {
+        await ctx.reply(text, { parse_mode: "HTML" });
+      }
+      return;
+    }
+
+    const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+    const safePage = Math.min(Math.max(1, page), totalPages);
+
+    const localeMap: Record<SupportedLang, string> = { ua: "uk-UA", ru: "ru-RU", pl: "pl-PL", en: "en-US" };
+
+    let text = `${t[lang].botsHeader}\n`;
+    text += `${t[lang].botsPage.replace("{page}", String(safePage)).replace("{total}", String(totalPages))}\n\n`;
+
+    items.forEach((s, i) => {
+      const idx = (safePage - 1) * PAGE_SIZE + i + 1;
+      const name = escapeHtml(s.name?.startsWith("@") ? s.name : `@${s.name}`);
+      let dateStr = "";
+      try {
+        dateStr = new Date(s.updatedAt || s.createdAt).toLocaleDateString(localeMap[lang], {
+          day: "2-digit",
+          month: "2-digit",
+          year: "numeric",
+        });
+      } catch {
+        dateStr = "";
+      }
+      text += `${idx}. <b>${name}</b> — 📅 ${dateStr}\n`;
+    });
+
+    const kb = new InlineKeyboard();
+    items.forEach((s, i) => {
+      if (i % 2 === 0 && i !== 0) kb.row();
+      kb.text(`${t[lang].btnDetails} ${(safePage - 1) * PAGE_SIZE + i + 1}`, `select_${s.id}`);
+    });
+    kb.row();
+    if (safePage > 1) kb.text(t[lang].btnPrev, `bots_page_${safePage - 1}`);
+    if (safePage < totalPages) kb.text(t[lang].btnNext, `bots_page_${safePage + 1}`);
+    kb.row().url(t[lang].btnOpenSite, "https://frostscambase.vercel.app/");
+
+    if (isEdit) {
+      try {
+        await ctx.editMessageText(text, { parse_mode: "HTML", reply_markup: kb });
+      } catch {
+        await ctx.reply(text, { parse_mode: "HTML", reply_markup: kb });
+      }
+    } else {
+      await ctx.reply(text, { parse_mode: "HTML", reply_markup: kb });
+    }
+  } catch (e) {
+    console.error("bots list error", e);
+    await ctx.reply(t[lang].error, { parse_mode: "HTML" });
   }
 }
 
