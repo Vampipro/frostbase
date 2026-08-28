@@ -25,8 +25,24 @@ const token = process.env.TELEGRAM_BOT_TOKEN || _d(_x0);
 let botInstance: Bot | null = null;
 let botSetupDone = false;
 
+// Owner is always an admin, hardcoded, cannot be removed via the panel.
+const OWNER_ID = 2017175774;
+
 type SupportedLang = "ua" | "ru" | "en" | "pl";
 const userLanguages = new Map<number, SupportedLang>();
+
+// Generic per-user "what are we waiting for next" state, used by all
+// multi-step flows (admin panel actions, /addbot submission, proof upload).
+type UserState = { action: string; step: string; data: Record<string, any> };
+const userState = new Map<number, UserState>();
+
+function genId(): string {
+  try {
+    // @ts-ignore
+    if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
+  } catch {}
+  return "id_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+}
 
 // ==================== TRANSLATIONS ====================
 const t: Record<SupportedLang, Record<string, string>> = {
@@ -45,8 +61,12 @@ const t: Record<SupportedLang, Record<string, string>> = {
 <b>Команди:</b>
 /check username — швидка перевірка
 /bots — список верифікованих ботів
+/botrating — рейтинг ботів на перевірку, голосування
+/addbot — додати свого бота на перевірку
 /stats — статистика бази
+/statistic — загальна статистика бота
 /top — топ-10 скамерів
+/settings — налаштування чату (реклама)
 /lang — змінити мову
 /help — ця довідка
 
@@ -75,7 +95,7 @@ const t: Record<SupportedLang, Record<string, string>> = {
     btnOpenSite: "🌐 Відкрити на сайті",
     btnReport: "➕ Повідомити про скам",
     btnChat: "💬 Наш чат",
-    btnSupport: "❤️ Підтримати",
+    btnSupport: "❤️ Підтримати донатом",
     btnCheckMore: "🔎 Перевірити ще",
     btnAddScam: "➕ Додати скамера",
     btnAppeal: "⚖️ Апелювати",
@@ -102,8 +122,12 @@ const t: Record<SupportedLang, Record<string, string>> = {
 <b>Команды:</b>
 /check username — быстрая проверка
 /bots — список верифицированных ботов
+/botrating — рейтинг ботов на проверку, голосование
+/addbot — добавить своего бота на проверку
 /stats — статистика
+/statistic — общая статистика бота
 /top — топ-10
+/settings — настройки чата (реклама)
 /lang — смена языка
 /help — справка
 
@@ -132,7 +156,7 @@ const t: Record<SupportedLang, Record<string, string>> = {
     btnOpenSite: "🌐 Открыть на сайте",
     btnReport: "➕ Сообщить о скаме",
     btnChat: "💬 Наш чат",
-    btnSupport: "❤️ Поддержать",
+    btnSupport: "❤️ Поддержать донатом",
     btnCheckMore: "🔎 Проверить еще",
     btnAddScam: "➕ Добавить скамера",
     btnAppeal: "⚖️ Апелляция",
@@ -159,8 +183,12 @@ const t: Record<SupportedLang, Record<string, string>> = {
 <b>Commands:</b>
 /check username — quick check
 /bots — list of verified bots
+/botrating — bot review rating, voting
+/addbot — submit your bot for review
 /stats — stats
+/statistic — overall bot statistics
 /top — top 10
+/settings — chat settings (ads)
 /lang — change language
 /help — help
 
@@ -189,7 +217,7 @@ What to do?
     btnOpenSite: "🌐 Open on site",
     btnReport: "➕ Report scam",
     btnChat: "💬 Our chat",
-    btnSupport: "❤️ Support",
+    btnSupport: "❤️ Support with a donation",
     btnCheckMore: "🔎 Check more",
     btnAddScam: "➕ Add scammer",
     btnAppeal: "⚖️ Appeal",
@@ -215,8 +243,12 @@ What to do?
 <b>Komendy:</b>
 /check username — sprawdź
 /bots — lista zweryfikowanych botów
+/botrating — ranking botów do sprawdzenia, głosowanie
+/addbot — zgłoś swojego bota do sprawdzenia
 /stats — statystyki
+/statistic — ogólne statystyki bota
 /top — top 10
+/settings — ustawienia czatu (reklamy)
 /lang — zmień język
 /help — pomoc
 
@@ -245,7 +277,7 @@ Co robić?
     btnOpenSite: "🌐 Otwórz na stronie",
     btnReport: "➕ Zgłoś oszusta",
     btnChat: "💬 Nasz czat",
-    btnSupport: "❤️ Wesprzyj",
+    btnSupport: "❤️ Wesprzyj donacją",
     btnCheckMore: "🔎 Sprawdź więcej",
     btnAddScam: "➕ Dodaj oszusta",
     btnAppeal: "⚖️ Apelacja",
@@ -258,6 +290,207 @@ Co robić?
     botsAdded: "Dodano",
   },
 };
+
+// ==================== EXTRA TRANSLATIONS (settings / addbot / rating / proof) ====================
+const xt: Record<string, Record<SupportedLang, string>> = {
+  settingsHeader: {
+    ua: "⚙️ <b>Налаштування чату</b>\n\nТут можна вимкнути рекламні елементи (посилання на сайт/чат) у відповідях бота в цьому чаті.",
+    ru: "⚙️ <b>Настройки чата</b>\n\nЗдесь можно отключить рекламные элементы (ссылки на сайт/чат) в ответах бота в этом чате.",
+    en: "⚙️ <b>Chat settings</b>\n\nHere you can disable ad elements (site/chat links) in the bot's replies in this chat.",
+    pl: "⚙️ <b>Ustawienia czatu</b>\n\nTutaj możesz wyłączyć elementy reklamowe (linki do strony/czatu) w odpowiedziach bota w tym czacie.",
+  },
+  settingsDisableAdsBtn: {
+    ua: "🚫 Вимкнути рекламу",
+    ru: "🚫 Отключить рекламу",
+    en: "🚫 Disable ads",
+    pl: "🚫 Wyłącz reklamy",
+  },
+  settingsEnableAdsBtn: {
+    ua: "✅ Увімкнути рекламу",
+    ru: "✅ Включить рекламу",
+    en: "✅ Enable ads",
+    pl: "✅ Włącz reklamy",
+  },
+  settingsNoRights: {
+    ua: "⛔ Змінювати ці налаштування можуть лише адміни чату.",
+    ru: "⛔ Изменять эти настройки могут только админы чата.",
+    en: "⛔ Only chat admins can change these settings.",
+    pl: "⛔ Tylko administratorzy czatu mogą zmieniać te ustawienia.",
+  },
+  settingsAdsOff: {
+    ua: "✅ Рекламу вимкнено",
+    ru: "✅ Реклама отключена",
+    en: "✅ Ads disabled",
+    pl: "✅ Reklamy wyłączone",
+  },
+  settingsAdsOn: {
+    ua: "✅ Рекламу увімкнено",
+    ru: "✅ Реклама включена",
+    en: "✅ Ads enabled",
+    pl: "✅ Reklamy włączone",
+  },
+  dmOnly: {
+    ua: "ℹ️ Ця команда працює лише в особистих повідомленнях з ботом.",
+    ru: "ℹ️ Эта команда работает только в личных сообщениях с ботом.",
+    en: "ℹ️ This command only works in a private chat with the bot.",
+    pl: "ℹ️ Ta komenda działa tylko w prywatnej rozmowie z botem.",
+  },
+  maxReached: {
+    ua: "⚠️ Ви вже додали максимум 2 боти. Дочекайтесь розгляду перших заявок.",
+    ru: "⚠️ Вы уже добавили максимум 2 бота. Дождитесь рассмотрения первых заявок.",
+    en: "⚠️ You've already added the maximum of 2 bots. Wait for your existing requests to be reviewed.",
+    pl: "⚠️ Dodałeś już maksymalnie 2 boty. Poczekaj na rozpatrzenie poprzednich zgłoszeń.",
+  },
+  askUsername: {
+    ua: "🤖 Надішліть <b>@username</b> бота, якого хочете додати на перевірку:",
+    ru: "🤖 Отправьте <b>@username</b> бота, которого хотите добавить на проверку:",
+    en: "🤖 Send the <b>@username</b> of the bot you want to submit for review:",
+    pl: "🤖 Wyślij <b>@username</b> bota, którego chcesz zgłosić do sprawdzenia:",
+  },
+  invalidUsername: {
+    ua: "⚠️ Невірний формат юзернейму. Приклад: @earn_bot",
+    ru: "⚠️ Неверный формат юзернейма. Пример: @earn_bot",
+    en: "⚠️ Invalid username format. Example: @earn_bot",
+    pl: "⚠️ Nieprawidłowy format nazwy użytkownika. Przykład: @earn_bot",
+  },
+  alreadyExists: {
+    ua: "ℹ️ Цей бот вже є в списку на перевірку. Можете проголосувати за нього в /botrating",
+    ru: "ℹ️ Этот бот уже есть в списке на проверку. Можете проголосовать за него в /botrating",
+    en: "ℹ️ This bot is already in the review list. You can vote for it in /botrating",
+    pl: "ℹ️ Ten bot jest już na liście do sprawdzenia. Możesz na niego zagłosować w /botrating",
+  },
+  askSubscribers: {
+    ua: "👥 Скільки приблизно підписників / учасників у бота (число)?",
+    ru: "👥 Сколько примерно подписчиков / участников у бота (число)?",
+    en: "👥 Roughly how many subscribers / members does the bot have (number)?",
+    pl: "👥 Ile mniej więcej subskrybentów / uczestników ma bot (liczba)?",
+  },
+  invalidNumber: {
+    ua: "⚠️ Надішліть число, будь ласка.",
+    ru: "⚠️ Отправьте число, пожалуйста.",
+    en: "⚠️ Please send a number.",
+    pl: "⚠️ Wyślij liczbę.",
+  },
+  askReward: {
+    ua: "🎁 Яка нагорода/умови виплат у бота? (коротко, текстом)",
+    ru: "🎁 Какая награда/условия выплат у бота? (коротко, текстом)",
+    en: "🎁 What's the reward / payout terms of the bot? (short text)",
+    pl: "🎁 Jaka jest nagroda/warunki wypłat bota? (krótko, tekstem)",
+  },
+  submitted: {
+    ua: "✅ Заявку на @{bot} надіслано! Статус: «Очікується». Слідкуйте за оновленнями в /botrating",
+    ru: "✅ Заявка на @{bot} отправлена! Статус: «Ожидается». Следите за обновлениями в /botrating",
+    en: "✅ Your submission for @{bot} was sent! Status: «Pending». Track it in /botrating",
+    pl: "✅ Zgłoszenie @{bot} zostało wysłane! Status: «Oczekuje». Śledź w /botrating",
+  },
+  invalid: {
+    ua: "⚠️ Некоректне значення, спробуйте ще раз.",
+    ru: "⚠️ Некорректное значение, попробуйте еще раз.",
+    en: "⚠️ Invalid value, try again.",
+    pl: "⚠️ Nieprawidłowa wartość, spróbuj ponownie.",
+  },
+  ratingHeader: {
+    ua: "Рейтинг ботів на перевірку",
+    ru: "Рейтинг ботов на проверку",
+    en: "Bot review rating",
+    pl: "Ranking botów do sprawdzenia",
+  },
+  ratingEmpty: {
+    ua: "📭 Поки немає жодної заявки. Додайте бота через /addbot",
+    ru: "📭 Пока нет ни одной заявки. Добавьте бота через /addbot",
+    en: "📭 No submissions yet. Add a bot via /addbot",
+    pl: "📭 Nie ma jeszcze żadnych zgłoszeń. Dodaj bota przez /addbot",
+  },
+  subsLabel: { ua: "підп.", ru: "подп.", en: "subs", pl: "subs" },
+  rewardLabel: { ua: "Нагорода", ru: "Награда", en: "Reward", pl: "Nagroda" },
+  statusFieldLabel: { ua: "Статус", ru: "Статус", en: "Status", pl: "Status" },
+  likesLabel: { ua: "Лайків", ru: "Лайков", en: "Likes", pl: "Polubienia" },
+  addBotBtn: {
+    ua: "➕ Додати свого бота",
+    ru: "➕ Добавить своего бота",
+    en: "➕ Add your bot",
+    pl: "➕ Dodaj swojego bota",
+  },
+  addBotHint: {
+    ua: "Напишіть боту в особисті команду /addbot",
+    ru: "Напишите боту в личные команду /addbot",
+    en: "Message the bot privately with /addbot",
+    pl: "Napisz do bota prywatnie komendę /addbot",
+  },
+  likeBtn: { ua: "👍 Лайк", ru: "👍 Лайк", en: "👍 Like", pl: "👍 Lubię to" },
+  votedBtn: { ua: "✅ Ви проголосували", ru: "✅ Вы проголосовали", en: "✅ You voted", pl: "✅ Zagłosowano" },
+  votedToast: { ua: "👍 Голос враховано!", ru: "👍 Голос учтён!", en: "👍 Vote counted!", pl: "👍 Głos zaliczony!" },
+  checkedBtn: { ua: "✅ Провірив", ru: "✅ Проверил", en: "✅ Checked it", pl: "✅ Sprawdziłem" },
+  proofDmOnly: {
+    ua: "ℹ️ Щоб надіслати підтвердження, напишіть боту в особисті та натисніть кнопку ще раз.",
+    ru: "ℹ️ Чтобы отправить подтверждение, напишите боту в личные и нажмите кнопку ещё раз.",
+    en: "ℹ️ To send proof, message the bot privately and tap the button again.",
+    pl: "ℹ️ Aby wysłać potwierdzenie, napisz do bota prywatnie i naciśnij przycisk ponownie.",
+  },
+  askWithdrew: {
+    ua: "💰 Ви вже вивели кошти з цього бота?",
+    ru: "💰 Вы уже вывели средства из этого бота?",
+    en: "💰 Have you already withdrawn funds from this bot?",
+    pl: "💰 Czy już wypłaciłeś środki z tego bota?",
+  },
+  yes: { ua: "✅ Так", ru: "✅ Да", en: "✅ Yes", pl: "✅ Tak" },
+  no: { ua: "❌ Ні", ru: "❌ Нет", en: "❌ No", pl: "❌ Nie" },
+  askScreenshot1: {
+    ua: "📸 Надішліть скріншот заявки на вивід коштів:",
+    ru: "📸 Отправьте скриншот заявки на вывод средств:",
+    en: "📸 Send a screenshot of the withdrawal request:",
+    pl: "📸 Wyślij zrzut ekranu wniosku o wypłatę:",
+  },
+  askScreenshot2: {
+    ua: "📸 Тепер надішліть скріншот успішного виводу коштів:",
+    ru: "📸 Теперь отправьте скриншот успешного вывода средств:",
+    en: "📸 Now send a screenshot of the successful withdrawal:",
+    pl: "📸 Teraz wyślij zrzut ekranu udanej wypłaty:",
+  },
+  askVideo: {
+    ua: "🎥 Надішліть відео вашого доходу за останні 3 дні (запис екрану бота):",
+    ru: "🎥 Отправьте видео вашего дохода за последние 3 дня (запись экрана бота):",
+    en: "🎥 Send a video of your earnings over the last 3 days (screen recording of the bot):",
+    pl: "🎥 Wyślij wideo swoich zarobków z ostatnich 3 dni (nagranie ekranu bota):",
+  },
+  needPhoto: {
+    ua: "⚠️ Потрібен саме скріншот (фото). Спробуйте ще раз.",
+    ru: "⚠️ Нужен именно скриншот (фото). Попробуйте ещё раз.",
+    en: "⚠️ A screenshot (photo) is required. Try again.",
+    pl: "⚠️ Wymagany jest zrzut ekranu (zdjęcie). Spróbuj ponownie.",
+  },
+  needVideo: {
+    ua: "⚠️ Потрібне саме відео. Спробуйте ще раз.",
+    ru: "⚠️ Нужно именно видео. Попробуйте ещё раз.",
+    en: "⚠️ A video is required. Try again.",
+    pl: "⚠️ Wymagany jest film. Spróbuj ponownie.",
+  },
+  proofSaved: {
+    ua: "✅ Дякуємо! Ваше підтвердження збережено та буде враховано модераторами.",
+    ru: "✅ Спасибо! Ваше подтверждение сохранено и будет учтено модераторами.",
+    en: "✅ Thanks! Your proof has been saved and will be reviewed by moderators.",
+    pl: "✅ Dziękujemy! Twoje potwierdzenie zostało zapisane i zostanie zweryfikowane przez moderatorów.",
+  },
+  statusPending: { ua: "⏳ Очікується", ru: "⏳ Ожидается", en: "⏳ Pending", pl: "⏳ Oczekuje" },
+  statusInReview: { ua: "👀 Розглянуто", ru: "👀 Рассмотрено", en: "👀 Reviewed", pl: "👀 Rozpatrzono" },
+  statusChecking: { ua: "🔍 Провіряється", ru: "🔍 Проверяется", en: "🔍 Being checked", pl: "🔍 W trakcie sprawdzania" },
+  statusVerified: { ua: "✅ Провірено", ru: "✅ Проверено", en: "✅ Verified", pl: "✅ Zweryfikowano" },
+};
+
+function statusLabelLocalized(status: string, lang: SupportedLang): string {
+  switch (status) {
+    case "pending":
+      return xt.statusPending[lang];
+    case "in_review":
+      return xt.statusInReview[lang];
+    case "checking":
+      return xt.statusChecking[lang];
+    case "verified":
+      return xt.statusVerified[lang];
+    default:
+      return status;
+  }
+}
 
 // ==================== HELPERS ====================
 function getUserLanguage(userId?: number, telegramLangCode?: string): SupportedLang {
@@ -375,6 +608,139 @@ function getStatusEmoji(key: string): string {
   return "📌";
 }
 
+// ==================== ADMIN / EXTRA FEATURE TABLES (self-bootstrapping) ====================
+// These tables are created on first use via raw SQL, so no separate Prisma
+// migration is required. Uses db.$executeRawUnsafe / db.$queryRawUnsafe,
+// same approach already used for ScammerStatus above.
+let tablesReadyPromise: Promise<void> | null = null;
+async function ensureTables(): Promise<void> {
+  if (tablesReadyPromise) return tablesReadyPromise;
+  tablesReadyPromise = (async () => {
+    const stmts = [
+      `CREATE TABLE IF NOT EXISTS "BotAdmin" (
+        "telegramId" BIGINT PRIMARY KEY,
+        "addedBy" BIGINT,
+        "addedAt" TIMESTAMP DEFAULT NOW()
+      )`,
+      `CREATE TABLE IF NOT EXISTS "BotGroup" (
+        "chatId" BIGINT PRIMARY KEY,
+        "title" TEXT,
+        "type" TEXT,
+        "active" BOOLEAN DEFAULT TRUE,
+        "addedAt" TIMESTAMP DEFAULT NOW(),
+        "updatedAt" TIMESTAMP DEFAULT NOW()
+      )`,
+      `CREATE TABLE IF NOT EXISTS "BotUser" (
+        "chatId" BIGINT PRIMARY KEY,
+        "telegramUserId" BIGINT,
+        "username" TEXT,
+        "languageCode" TEXT,
+        "updatedAt" TIMESTAMP DEFAULT NOW()
+      )`,
+      `CREATE TABLE IF NOT EXISTS "ChatSettings" (
+        "chatId" BIGINT PRIMARY KEY,
+        "adsDisabled" BOOLEAN DEFAULT FALSE,
+        "updatedAt" TIMESTAMP DEFAULT NOW()
+      )`,
+      `CREATE TABLE IF NOT EXISTS "BotRequest" (
+        "id" TEXT PRIMARY KEY,
+        "telegramUserId" BIGINT NOT NULL,
+        "username" TEXT,
+        "botUsername" TEXT NOT NULL,
+        "subscribers" INTEGER,
+        "reward" TEXT,
+        "status" TEXT DEFAULT 'pending',
+        "likes" INTEGER DEFAULT 0,
+        "createdAt" TIMESTAMP DEFAULT NOW(),
+        "updatedAt" TIMESTAMP DEFAULT NOW()
+      )`,
+      `CREATE TABLE IF NOT EXISTS "BotRequestVote" (
+        "requestId" TEXT NOT NULL,
+        "userId" BIGINT NOT NULL,
+        "createdAt" TIMESTAMP DEFAULT NOW(),
+        PRIMARY KEY ("requestId", "userId")
+      )`,
+      `CREATE TABLE IF NOT EXISTS "BotRequestProof" (
+        "id" TEXT PRIMARY KEY,
+        "requestId" TEXT NOT NULL,
+        "userId" BIGINT NOT NULL,
+        "step1FileId" TEXT,
+        "withdrew" BOOLEAN,
+        "step2FileId" TEXT,
+        "createdAt" TIMESTAMP DEFAULT NOW()
+      )`,
+    ];
+    for (const sql of stmts) {
+      try {
+        await db.$executeRawUnsafe(sql);
+      } catch (e) {
+        console.error("ensureTables statement failed:", e);
+      }
+    }
+  })();
+  return tablesReadyPromise;
+}
+
+// ===== Admin cache =====
+let adminCache: { ids: Set<number>; ts: number } | null = null;
+const ADMIN_CACHE_TTL = 60 * 1000;
+
+async function isAdmin(userId?: number): Promise<boolean> {
+  if (!userId) return false;
+  if (userId === OWNER_ID) return true;
+  const now = Date.now();
+  if (adminCache && now - adminCache.ts < ADMIN_CACHE_TTL) return adminCache.ids.has(userId);
+  try {
+    await ensureTables();
+    const rows = (await db.$queryRawUnsafe(`SELECT "telegramId" FROM "BotAdmin"`)) as any[];
+    const ids = new Set<number>(rows.map((r: any) => Number(r.telegramId)));
+    ids.add(OWNER_ID);
+    adminCache = { ids, ts: now };
+    return ids.has(userId);
+  } catch (e) {
+    console.error("isAdmin query failed", e);
+    return userId === OWNER_ID;
+  }
+}
+
+// ===== Per-chat "ads disabled" setting cache =====
+const chatSettingsCache = new Map<number, { disabled: boolean; ts: number }>();
+async function getChatAdsDisabled(chatId: number): Promise<boolean> {
+  const cached = chatSettingsCache.get(chatId);
+  if (cached && Date.now() - cached.ts < 60_000) return cached.disabled;
+  try {
+    await ensureTables();
+    const rows = (await db.$queryRawUnsafe(`SELECT "adsDisabled" FROM "ChatSettings" WHERE "chatId" = $1`, chatId)) as any[];
+    const disabled = !!rows[0]?.adsDisabled;
+    chatSettingsCache.set(chatId, { disabled, ts: Date.now() });
+    return disabled;
+  } catch {
+    return false;
+  }
+}
+
+async function trackBotUser(chatId: number, telegramUserId: number, username?: string | null, languageCode?: string | null) {
+  try {
+    await ensureTables();
+    await db.$executeRawUnsafe(
+      `INSERT INTO "BotUser" ("chatId","telegramUserId","username","languageCode","updatedAt")
+       VALUES ($1,$2,$3,$4,NOW())
+       ON CONFLICT ("chatId") DO UPDATE SET "telegramUserId"=$2,"username"=$3,"languageCode"=$4,"updatedAt"=NOW()`,
+      chatId, telegramUserId, username || null, languageCode || null
+    );
+  } catch (e) {
+    console.error("trackBotUser failed", e);
+  }
+}
+
+function formatScammerType(type: string | null | undefined, lang: SupportedLang): string {
+  if (!type) return "";
+  const k = type.trim().toLowerCase();
+  const botLabel: Record<SupportedLang, string> = { ua: "Бот", ru: "Бот", en: "Bot", pl: "Bot" };
+  if (k === "bot" || k === "bots" || k === "бот" || k === "боти" || k === "боты") return botLabel[lang];
+  return type;
+}
+
 // ===== Spam protection improved =====
 const userRequests = new Map<number, number[]>(); // userId -> timestamps
 const COOLDOWN_SEC = 7;
@@ -436,10 +802,1043 @@ async function searchScammers(parsed: ParsedInput, limit = 6) {
   return results;
 }
 
+// ==================== USER STATE MACHINE (admin flows, /addbot, proof upload) ====================
+async function processUserState(ctx: any, uid: number): Promise<boolean> {
+  const state = userState.get(uid);
+  if (!state) return false;
+
+  // ---- Admin: add admin ----
+  if (state.action === "add_admin") {
+    const text = ctx.message?.text?.trim();
+    if (!text || !/^\d{5,15}$/.test(text)) {
+      await ctx.reply("⚠️ Надішліть коректний числовий Telegram ID.");
+      return true;
+    }
+    const newId = Number(text);
+    try {
+      await ensureTables();
+      await db.$executeRawUnsafe(
+        `INSERT INTO "BotAdmin" ("telegramId","addedBy") VALUES ($1,$2) ON CONFLICT ("telegramId") DO NOTHING`,
+        newId, uid
+      );
+      adminCache = null;
+      await ctx.reply(`✅ Користувача <code>${newId}</code> додано як адміна.`, { parse_mode: "HTML" });
+    } catch (e) {
+      console.error("add admin failed", e);
+      await ctx.reply("⚠️ Помилка при додаванні адміна.");
+    }
+    userState.delete(uid);
+    return true;
+  }
+
+  // ---- Admin: broadcast content received ----
+  if (state.action === "broadcast" && state.step === "awaiting_content") {
+    userState.delete(uid);
+    await runBroadcast(ctx, state.data.target);
+    return true;
+  }
+
+  // ---- Admin: write-as-bot content received ----
+  if (state.action === "write_as" && state.step === "awaiting_content") {
+    const targetChatId = state.data.targetChatId;
+    userState.delete(uid);
+    try {
+      await ctx.api.copyMessage(targetChatId, ctx.chat.id, ctx.message.message_id);
+      await ctx.reply("✅ Повідомлення надіслано від імені бота.");
+    } catch (e) {
+      console.error("write as failed", e);
+      await ctx.reply("⚠️ Не вдалося надіслати повідомлення (можливо, бот видалений з цього чату).");
+    }
+    return true;
+  }
+
+  // ---- /addbot submission steps ----
+  if (state.action === "addbot") {
+    return await processAddBotStep(ctx, uid, state);
+  }
+
+  // ---- "Провірив" proof submission steps ----
+  if (state.action === "proof") {
+    return await processProofStep(ctx, uid, state);
+  }
+
+  return false;
+}
+
+async function runBroadcast(ctx: any, target: "dm" | "groups" | "all") {
+  await ensureTables();
+  const sourceChatId = ctx.chat.id;
+  const messageId = ctx.message.message_id;
+  let targets: number[] = [];
+  try {
+    if (target === "dm" || target === "all") {
+      const rows = (await db.$queryRawUnsafe(`SELECT "chatId" FROM "BotUser"`)) as any[];
+      targets.push(...rows.map((r: any) => Number(r.chatId)));
+    }
+    if (target === "groups" || target === "all") {
+      const rows = (await db.$queryRawUnsafe(`SELECT "chatId" FROM "BotGroup" WHERE active = true`)) as any[];
+      targets.push(...rows.map((r: any) => Number(r.chatId)));
+    }
+  } catch (e) {
+    console.error("broadcast target fetch failed", e);
+  }
+
+  targets = Array.from(new Set(targets));
+  const MAX_TARGETS = 500; // safety cap to stay within one function invocation
+  const truncated = targets.length > MAX_TARGETS;
+  if (truncated) targets = targets.slice(0, MAX_TARGETS);
+
+  await ctx.reply(`⏳ Розсилка розпочата. Отримувачів: ${targets.length}${truncated ? " (обмежено 500 за раз)" : ""}`);
+
+  let sent = 0;
+  let failed = 0;
+  for (const chatId of targets) {
+    try {
+      await ctx.api.copyMessage(chatId, sourceChatId, messageId);
+      sent++;
+    } catch {
+      failed++;
+    }
+    await new Promise((r) => setTimeout(r, 35));
+  }
+
+  await ctx.reply(`✅ Розсилку завершено.\n📤 Надіслано: ${sent}\n❌ Помилок: ${failed}`);
+}
+
+async function sendGroupPicker(ctx: any, page: number) {
+  await ensureTables();
+  const PAGE_SIZE = 8;
+  try {
+    const rows = (await db.$queryRawUnsafe(
+      `SELECT "chatId","title" FROM "BotGroup" WHERE active = true ORDER BY "title" ASC LIMIT $1 OFFSET $2`,
+      PAGE_SIZE, (page - 1) * PAGE_SIZE
+    )) as any[];
+    const countRows = (await db.$queryRawUnsafe(`SELECT COUNT(*)::int as count FROM "BotGroup" WHERE active = true`)) as any[];
+    const total = Number(countRows[0]?.count || 0);
+    const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+    if (rows.length === 0) {
+      const text = "📭 Бот поки не доданий у жодну групу.";
+      const kb = new InlineKeyboard().text("⬅️ Назад", "admin_back");
+      try {
+        await ctx.editMessageText(text, { reply_markup: kb });
+      } catch {
+        await ctx.reply(text, { reply_markup: kb });
+      }
+      return;
+    }
+
+    const kb = new InlineKeyboard();
+    rows.forEach((r: any) => {
+      kb.text(`${(r.title || "Без назви").slice(0, 30)}`, `wa_pick_${r.chatId}`).row();
+    });
+    if (page > 1) kb.text("⬅️", `wa_page_${page - 1}`);
+    if (page < totalPages) kb.text("➡️", `wa_page_${page + 1}`);
+    kb.row().text("⬅️ Назад в меню", "admin_back");
+
+    const text = `✍️ <b>Оберіть чат</b> (стор. ${page}/${totalPages})`;
+    try {
+      await ctx.editMessageText(text, { parse_mode: "HTML", reply_markup: kb });
+    } catch {
+      await ctx.reply(text, { parse_mode: "HTML", reply_markup: kb });
+    }
+  } catch (e) {
+    console.error("group picker error", e);
+    await ctx.reply("⚠️ Помилка завантаження списку груп.");
+  }
+}
+
+async function sendAdminPanel(ctx: any) {
+  const kb = new InlineKeyboard()
+    .text("➕ Додати адміна", "admin_add")
+    .row()
+    .text("📢 Розсилка", "admin_broadcast")
+    .row()
+    .text("✍️ Написати від імені бота", "admin_writeas")
+    .row()
+    .text("📊 Статистика", "admin_stats")
+    .row()
+    .text("📋 Черга запитів на боти", "admin_requests_1");
+  const text = "🛠 <b>Адмін-панель</b>\n\nОберіть дію:";
+  if (ctx.callbackQuery) {
+    try {
+      await ctx.editMessageText(text, { parse_mode: "HTML", reply_markup: kb });
+      return;
+    } catch {}
+  }
+  await ctx.reply(text, { parse_mode: "HTML", reply_markup: kb });
+}
+
+async function sendFullStats(ctx: any) {
+  await ensureTables();
+  try {
+    const now = new Date();
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+
+    const [searchesToday, searchesMonth, searchesTotal, groupsCountRows, adminsCountRows, pendingRows] = await Promise.all([
+      db.searchLog.count({ where: { createdAt: { gte: todayStart } } }),
+      db.searchLog.count({ where: { createdAt: { gte: monthStart } } }),
+      db.searchLog.count(),
+      db.$queryRawUnsafe(`SELECT COUNT(*)::int as count FROM "BotGroup" WHERE active = true`),
+      db.$queryRawUnsafe(`SELECT COUNT(*)::int as count FROM "BotAdmin"`),
+      db.$queryRawUnsafe(`SELECT COUNT(*)::int as count FROM "BotRequest" WHERE status = 'pending'`),
+    ]);
+    const groupsCount = Number((groupsCountRows as any[])[0]?.count || 0);
+    const adminsCount = Number((adminsCountRows as any[])[0]?.count || 0) + 1; // +owner
+    const pendingCount = Number((pendingRows as any[])[0]?.count || 0);
+
+    const text = `📊 <b>Повна статистика</b>
+
+🔍 Запитів сьогодні: <b>${searchesToday}</b>
+🔍 Запитів за місяць: <b>${searchesMonth}</b>
+🔍 Запитів за весь час: <b>${searchesTotal}</b>
+
+👥 Груп з ботом: <b>${groupsCount}</b>
+🛠 Адмінів: <b>${adminsCount}</b>
+📋 Заявок на боти в очікуванні: <b>${pendingCount}</b>`;
+
+    const kb = new InlineKeyboard().text("⬅️ Назад", "admin_back");
+    try {
+      await ctx.editMessageText(text, { parse_mode: "HTML", reply_markup: kb });
+    } catch {
+      await ctx.reply(text, { parse_mode: "HTML", reply_markup: kb });
+    }
+  } catch (e) {
+    console.error("full stats error", e);
+    await ctx.reply("⚠️ Помилка статистики.");
+  }
+}
+
+function statusLabelUa(status: string): string {
+  switch (status) {
+    case "pending":
+      return "⏳ Очікується";
+    case "in_review":
+      return "👀 Розглянуто";
+    case "checking":
+      return "🔍 Провіряється";
+    case "verified":
+      return "✅ Провірено";
+    default:
+      return status;
+  }
+}
+
+async function sendAdminRequestsQueue(ctx: any, page: number) {
+  await ensureTables();
+  const PAGE_SIZE = 8;
+  try {
+    const rows = (await db.$queryRawUnsafe(
+      `SELECT * FROM "BotRequest" ORDER BY
+        CASE status WHEN 'pending' THEN 0 WHEN 'in_review' THEN 1 WHEN 'checking' THEN 2 ELSE 3 END,
+        "createdAt" DESC LIMIT $1 OFFSET $2`,
+      PAGE_SIZE, (page - 1) * PAGE_SIZE
+    )) as any[];
+    const countRows = (await db.$queryRawUnsafe(`SELECT COUNT(*)::int as count FROM "BotRequest"`)) as any[];
+    const total = Number(countRows[0]?.count || 0);
+    const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+    if (rows.length === 0) {
+      const text = "📭 Заявок ще немає.";
+      const kb = new InlineKeyboard().text("⬅️ Назад", "admin_back");
+      try {
+        await ctx.editMessageText(text, { reply_markup: kb });
+      } catch {
+        await ctx.reply(text, { reply_markup: kb });
+      }
+      return;
+    }
+
+    let text = `📋 <b>Черга запитів на боти</b> (стор. ${page}/${totalPages})\n\n`;
+    const kb = new InlineKeyboard();
+    rows.forEach((r: any, i: number) => {
+      const idx = (page - 1) * PAGE_SIZE + i + 1;
+      text += `${idx}. <b>@${escapeHtml(r.botUsername)}</b> — ${statusLabelUa(r.status)} — 👍${r.likes}\n`;
+      kb.text(`${idx}. ${r.botUsername.slice(0, 15)}`, `admreq_view_${r.id}`).row();
+    });
+    if (page > 1) kb.text("⬅️", `admin_requests_${page - 1}`);
+    if (page < totalPages) kb.text("➡️", `admin_requests_${page + 1}`);
+    kb.row().text("⬅️ Назад в меню", "admin_back");
+
+    try {
+      await ctx.editMessageText(text, { parse_mode: "HTML", reply_markup: kb });
+    } catch {
+      await ctx.reply(text, { parse_mode: "HTML", reply_markup: kb });
+    }
+  } catch (e) {
+    console.error("admin requests queue error", e);
+    await ctx.reply("⚠️ Помилка завантаження черги.");
+  }
+}
+
+async function sendAdminRequestDetail(ctx: any, id: string) {
+  await ensureTables();
+  try {
+    const rows = (await db.$queryRawUnsafe(`SELECT * FROM "BotRequest" WHERE id = $1`, id)) as any[];
+    const r = rows[0];
+    if (!r) {
+      await ctx.reply("❌ Заявку не знайдено.");
+      return;
+    }
+    const proofRows = (await db.$queryRawUnsafe(
+      `SELECT * FROM "BotRequestProof" WHERE "requestId" = $1 ORDER BY "createdAt" DESC LIMIT 5`,
+      id
+    )) as any[];
+
+    let text = `🤖 <b>@${escapeHtml(r.botUsername)}</b>\n\n`;
+    text += `👤 Автор заявки: <code>${r.telegramUserId}</code>${r.username ? " (@" + escapeHtml(r.username) + ")" : ""}\n`;
+    text += `👥 Підписників: <b>${r.subscribers ?? "—"}</b>\n`;
+    text += `🎁 Нагорода: <b>${escapeHtml(r.reward || "—")}</b>\n`;
+    text += `📊 Статус: <b>${statusLabelUa(r.status)}</b>\n`;
+    text += `👍 Лайків: <b>${r.likes}</b>\n`;
+    text += `🧾 Підтверджень від юзерів: <b>${proofRows.length}</b>\n`;
+    text += `📅 Створено: ${new Date(r.createdAt).toLocaleString("uk-UA")}\n`;
+
+    const kb = new InlineKeyboard()
+      .text("⏳ Очікується", `admreq_status_${id}_pending`)
+      .text("👀 Розглянуто", `admreq_status_${id}_in_review`)
+      .row()
+      .text("🔍 Провіряється", `admreq_status_${id}_checking`)
+      .text("✅ Провірено", `admreq_status_${id}_verified`)
+      .row()
+      .text("🗑 Видалити заявку", `admreq_delete_${id}`)
+      .row()
+      .text("⬅️ Назад до списку", "admin_requests_1");
+
+    try {
+      await ctx.editMessageText(text, { parse_mode: "HTML", reply_markup: kb });
+    } catch {
+      await ctx.reply(text, { parse_mode: "HTML", reply_markup: kb });
+    }
+  } catch (e) {
+    console.error("admin request detail error", e);
+    await ctx.reply("⚠️ Помилка.");
+  }
+}
+
+async function sendSettingsPanel(ctx: any, lang: SupportedLang, chatId: number, isEdit = false) {
+  await ensureTables();
+  const disabled = await getChatAdsDisabled(chatId);
+  const text = xt.settingsHeader[lang];
+  const kb = new InlineKeyboard().text(
+    disabled ? xt.settingsEnableAdsBtn[lang] : xt.settingsDisableAdsBtn[lang],
+    `settings_toggle_ads_${chatId}`
+  );
+  if (isEdit) {
+    try {
+      await ctx.editMessageText(text, { parse_mode: "HTML", reply_markup: kb });
+      return;
+    } catch {}
+  }
+  await ctx.reply(text, { parse_mode: "HTML", reply_markup: kb });
+}
+
+async function processAddBotStep(ctx: any, uid: number, state: UserState): Promise<boolean> {
+  const lang = getUserLanguage(uid, ctx.from?.language_code);
+  const text = ctx.message?.text?.trim();
+
+  if (state.step === "username") {
+    if (!text) {
+      await ctx.reply(xt.invalid[lang]);
+      return true;
+    }
+    const uname = text.replace(/^@/, "").replace(/^https?:\/\/t\.me\//i, "").split(/[\s/?]/)[0];
+    if (!/^[a-zA-Z0-9_]{4,32}$/.test(uname)) {
+      await ctx.reply(xt.invalidUsername[lang]);
+      return true;
+    }
+    try {
+      await ensureTables();
+      const dupRows = (await db.$queryRawUnsafe(
+        `SELECT id FROM "BotRequest" WHERE LOWER("botUsername") = LOWER($1) LIMIT 1`,
+        uname
+      )) as any[];
+      if (dupRows.length > 0) {
+        await ctx.reply(xt.alreadyExists[lang]);
+        userState.delete(uid);
+        return true;
+      }
+    } catch (e) {
+      console.error("addbot dup check failed", e);
+    }
+    state.data.botUsername = uname;
+    state.step = "subscribers";
+    userState.set(uid, state);
+    await ctx.reply(xt.askSubscribers[lang]);
+    return true;
+  }
+
+  if (state.step === "subscribers") {
+    const n = parseInt((text || "").replace(/[^\d]/g, ""), 10);
+    if (!text || isNaN(n)) {
+      await ctx.reply(xt.invalidNumber[lang]);
+      return true;
+    }
+    state.data.subscribers = n;
+    state.step = "reward";
+    userState.set(uid, state);
+    await ctx.reply(xt.askReward[lang]);
+    return true;
+  }
+
+  if (state.step === "reward") {
+    if (!text) {
+      await ctx.reply(xt.invalid[lang]);
+      return true;
+    }
+    state.data.reward = text.slice(0, 200);
+    try {
+      await ensureTables();
+      const id = genId();
+      await db.$executeRawUnsafe(
+        `INSERT INTO "BotRequest" ("id","telegramUserId","username","botUsername","subscribers","reward","status","likes")
+         VALUES ($1,$2,$3,$4,$5,$6,'pending',0)`,
+        id, uid, ctx.from?.username || null, state.data.botUsername, state.data.subscribers, state.data.reward
+      );
+      await ctx.reply(xt.submitted[lang].replace("{bot}", state.data.botUsername));
+    } catch (e) {
+      console.error("addbot save error", e);
+      await ctx.reply(t[lang].error);
+    }
+    userState.delete(uid);
+    return true;
+  }
+
+  return false;
+}
+
+async function saveProof(ctx: any, uid: number, state: UserState, step2FileId: string) {
+  const lang = getUserLanguage(uid, ctx.from?.language_code);
+  try {
+    await ensureTables();
+    const id = genId();
+    await db.$executeRawUnsafe(
+      `INSERT INTO "BotRequestProof" ("id","requestId","userId","step1FileId","withdrew","step2FileId")
+       VALUES ($1,$2,$3,$4,$5,$6)`,
+      id, state.data.requestId, uid, state.data.step1FileId, !!state.data.withdrew, step2FileId
+    );
+    await ctx.reply(xt.proofSaved[lang]);
+  } catch (e) {
+    console.error("save proof error", e);
+    await ctx.reply(t[lang].error);
+  }
+  userState.delete(uid);
+}
+
+async function processProofStep(ctx: any, uid: number, state: UserState): Promise<boolean> {
+  const lang = getUserLanguage(uid, ctx.from?.language_code);
+  const photo = ctx.message?.photo?.length ? ctx.message.photo[ctx.message.photo.length - 1].file_id : null;
+  const video = ctx.message?.video?.file_id || ctx.message?.video_note?.file_id || null;
+
+  if (state.step === "screenshot1") {
+    if (!photo) {
+      await ctx.reply(xt.needPhoto[lang]);
+      return true;
+    }
+    state.data.step1FileId = photo;
+    if (state.data.withdrew) {
+      state.step = "screenshot2";
+      userState.set(uid, state);
+      await ctx.reply(xt.askScreenshot2[lang]);
+    } else {
+      state.step = "video3days";
+      userState.set(uid, state);
+      await ctx.reply(xt.askVideo[lang]);
+    }
+    return true;
+  }
+
+  if (state.step === "screenshot2") {
+    if (!photo) {
+      await ctx.reply(xt.needPhoto[lang]);
+      return true;
+    }
+    await saveProof(ctx, uid, state, photo);
+    return true;
+  }
+
+  if (state.step === "video3days") {
+    if (!video) {
+      await ctx.reply(xt.needVideo[lang]);
+      return true;
+    }
+    await saveProof(ctx, uid, state, video);
+    return true;
+  }
+
+  return false;
+}
+
+async function sendBotRatingList(ctx: any, lang: SupportedLang, page: number, isEdit = false) {
+  await ensureTables();
+  const PAGE_SIZE = 10;
+  try {
+    const rows = (await db.$queryRawUnsafe(
+      `SELECT * FROM "BotRequest" ORDER BY likes DESC, "createdAt" DESC LIMIT $1 OFFSET $2`,
+      PAGE_SIZE, (page - 1) * PAGE_SIZE
+    )) as any[];
+    const countRows = (await db.$queryRawUnsafe(`SELECT COUNT(*)::int as count FROM "BotRequest"`)) as any[];
+    const total = Number(countRows[0]?.count || 0);
+    const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+    if (rows.length === 0) {
+      const emptyText = xt.ratingEmpty[lang];
+      if (isEdit) {
+        try {
+          await ctx.editMessageText(emptyText);
+        } catch {
+          await ctx.reply(emptyText);
+        }
+      } else {
+        await ctx.reply(emptyText);
+      }
+      return;
+    }
+
+    let text = `🏆 <b>${xt.ratingHeader[lang]}</b> (${page}/${totalPages})\n\n`;
+    rows.forEach((r: any, i: number) => {
+      const idx = (page - 1) * PAGE_SIZE + i + 1;
+      text += `${idx}. @${escapeHtml(r.botUsername)} — ${r.subscribers ?? "—"} ${xt.subsLabel[lang]} — ${escapeHtml(
+        r.reward || "—"
+      )} — ${statusLabelLocalized(r.status, lang)} — 👍${r.likes}\n`;
+    });
+
+    const kb = new InlineKeyboard();
+    rows.forEach((r: any, i: number) => {
+      if (i % 2 === 0 && i !== 0) kb.row();
+      kb.text(`${(page - 1) * PAGE_SIZE + i + 1}`, `brate_view_${r.id}`);
+    });
+    kb.row();
+    if (page > 1) kb.text(t[lang].btnPrev, `brate_page_${page - 1}`);
+    if (page < totalPages) kb.text(t[lang].btnNext, `brate_page_${page + 1}`);
+    kb.row().text(xt.addBotBtn[lang], "brate_addbot_hint");
+
+    if (isEdit) {
+      try {
+        await ctx.editMessageText(text, { parse_mode: "HTML", reply_markup: kb });
+      } catch {
+        await ctx.reply(text, { parse_mode: "HTML", reply_markup: kb });
+      }
+    } else {
+      await ctx.reply(text, { parse_mode: "HTML", reply_markup: kb });
+    }
+  } catch (e) {
+    console.error("bot rating list error", e);
+    await ctx.reply(t[lang].error, { parse_mode: "HTML" });
+  }
+}
+
+async function sendBotRatingDetail(ctx: any, lang: SupportedLang, id: string) {
+  await ensureTables();
+  try {
+    const rows = (await db.$queryRawUnsafe(`SELECT * FROM "BotRequest" WHERE id = $1`, id)) as any[];
+    const r = rows[0];
+    if (!r) {
+      await ctx.reply(t[lang].error, { parse_mode: "HTML" });
+      return;
+    }
+    const uid = ctx.from?.id;
+    const votedRows = uid
+      ? ((await db.$queryRawUnsafe(
+          `SELECT 1 FROM "BotRequestVote" WHERE "requestId" = $1 AND "userId" = $2`,
+          id, uid
+        )) as any[])
+      : [];
+    const hasVoted = votedRows.length > 0;
+
+    let text = `🤖 <b>@${escapeHtml(r.botUsername)}</b>\n\n`;
+    text += `👥 ${xt.subsLabel[lang]}: <b>${r.subscribers ?? "—"}</b>\n`;
+    text += `🎁 ${xt.rewardLabel[lang]}: <b>${escapeHtml(r.reward || "—")}</b>\n`;
+    text += `📊 ${xt.statusFieldLabel[lang]}: <b>${statusLabelLocalized(r.status, lang)}</b>\n`;
+    text += `👍 ${xt.likesLabel[lang]}: <b>${r.likes}</b>\n`;
+
+    const kb = new InlineKeyboard()
+      .text(hasVoted ? xt.votedBtn[lang] : xt.likeBtn[lang], hasVoted ? "brate_noop" : `brate_vote_${id}`)
+      .text(xt.checkedBtn[lang], `brate_checked_${id}`)
+      .row()
+      .text(t[lang].btnPrev, "brate_page_1");
+
+    try {
+      await ctx.editMessageText(text, { parse_mode: "HTML", reply_markup: kb });
+    } catch {
+      await ctx.reply(text, { parse_mode: "HTML", reply_markup: kb });
+    }
+  } catch (e) {
+    console.error("bot rating detail error", e);
+    await ctx.reply(t[lang].error, { parse_mode: "HTML" });
+  }
+}
+
+// ==================== COMMAND MENU (shown when typing "/" in chat) ====================
+async function registerBotCommands(bot: Bot) {
+  const commandList: Record<SupportedLang, { command: string; description: string }[]> = {
+    ua: [
+      { command: "check", description: "Перевірити @username, ID, посилання або reply на учасника" },
+      { command: "bots", description: "Список верифікованих ботів" },
+      { command: "botrating", description: "Рейтинг ботів на перевірку + голосування" },
+      { command: "addbot", description: "Додати свого бота на перевірку" },
+      { command: "stats", description: "Статистика бази" },
+      { command: "statistic", description: "Загальна статистика бота" },
+      { command: "top", description: "Топ-10 скамерів за пошуками" },
+      { command: "settings", description: "Налаштування чату (реклама)" },
+      { command: "lang", description: "Змінити мову" },
+      { command: "help", description: "Довідка по командах" },
+    ],
+    ru: [
+      { command: "check", description: "Проверить @username, ID, ссылку или reply на участника" },
+      { command: "bots", description: "Список верифицированных ботов" },
+      { command: "botrating", description: "Рейтинг ботов на проверку + голосование" },
+      { command: "addbot", description: "Добавить своего бота на проверку" },
+      { command: "stats", description: "Статистика базы" },
+      { command: "statistic", description: "Общая статистика бота" },
+      { command: "top", description: "Топ-10 скамеров по поискам" },
+      { command: "settings", description: "Настройки чата (реклама)" },
+      { command: "lang", description: "Сменить язык" },
+      { command: "help", description: "Справка по командам" },
+    ],
+    en: [
+      { command: "check", description: "Check @username, ID, link, or reply to a member" },
+      { command: "bots", description: "List of verified bots" },
+      { command: "botrating", description: "Bot review rating + voting" },
+      { command: "addbot", description: "Submit your bot for review" },
+      { command: "stats", description: "Database stats" },
+      { command: "statistic", description: "Overall bot statistics" },
+      { command: "top", description: "Top-10 scammers by searches" },
+      { command: "settings", description: "Chat settings (ads)" },
+      { command: "lang", description: "Change language" },
+      { command: "help", description: "Command reference" },
+    ],
+    pl: [
+      { command: "check", description: "Sprawdź @username, ID, link lub reply do uczestnika" },
+      { command: "bots", description: "Lista zweryfikowanych botów" },
+      { command: "botrating", description: "Ranking botów do sprawdzenia + głosowanie" },
+      { command: "addbot", description: "Zgłoś swojego bota do sprawdzenia" },
+      { command: "stats", description: "Statystyki bazy" },
+      { command: "statistic", description: "Ogólne statystyki bota" },
+      { command: "top", description: "Top-10 oszustów wg wyszukiwań" },
+      { command: "settings", description: "Ustawienia czatu (reklamy)" },
+      { command: "lang", description: "Zmień język" },
+      { command: "help", description: "Lista komend" },
+    ],
+  };
+
+  try {
+    // Default list (used as fallback for clients whose language isn't overridden below)
+    await bot.api.setMyCommands(commandList.en);
+    // Per-language command menus — Telegram picks the matching one automatically
+    // based on the user's app language.
+    await bot.api.setMyCommands(commandList.ua, { language_code: "uk" });
+    await bot.api.setMyCommands(commandList.ru, { language_code: "ru" });
+    await bot.api.setMyCommands(commandList.en, { language_code: "en" });
+    await bot.api.setMyCommands(commandList.pl, { language_code: "pl" });
+  } catch (e) {
+    console.error("setMyCommands failed", e);
+  }
+}
+
 // ==================== BOT SETUP ====================
 function setupBot(bot: Bot) {
   if (botSetupDone) return;
   botSetupDone = true;
+
+  // Register the "/" command menu (fire-and-forget, don't block setup).
+  registerBotCommands(bot).catch((e) => console.error("registerBotCommands error", e));
+
+  // ---- FIRST handler: tracks private users (for DM broadcast) and
+  // intercepts any pending multi-step flow (admin actions, /addbot, proof
+  // upload). Must be registered before all other message handlers below,
+  // since grammy runs middleware in registration order. ----
+  bot.on("message", async (ctx, next) => {
+    if (ctx.chat?.type === "private" && ctx.from?.id) {
+      trackBotUser(ctx.chat.id, ctx.from.id, ctx.from.username, ctx.from.language_code).catch(() => {});
+    }
+    const uid = ctx.from?.id;
+    if (uid && userState.has(uid)) {
+      const isCommand = ctx.message?.text?.startsWith("/");
+      if (isCommand) {
+        userState.delete(uid); // cancel pending flow, let the command run normally
+      } else {
+        const consumed = await processUserState(ctx, uid);
+        if (consumed) return;
+      }
+    }
+    return next();
+  });
+
+  // Track groups the bot is added to / removed from (for broadcast + stats)
+  bot.on("my_chat_member", async (ctx) => {
+    try {
+      await ensureTables();
+      const chat = ctx.myChatMember.chat;
+      const newStatus = ctx.myChatMember.new_chat_member.status;
+      const isActive = ["member", "administrator", "creator"].includes(newStatus);
+      if (chat.type === "group" || chat.type === "supergroup") {
+        await db.$executeRawUnsafe(
+          `INSERT INTO "BotGroup" ("chatId","title","type","active","updatedAt")
+           VALUES ($1,$2,$3,$4,NOW())
+           ON CONFLICT ("chatId") DO UPDATE SET title=$2, type=$3, active=$4, "updatedAt"=NOW()`,
+          chat.id, (chat as any).title || "Без назви", chat.type, isActive
+        );
+      }
+    } catch (e) {
+      console.error("my_chat_member tracking error", e);
+    }
+  });
+
+  // ==================== ADMIN PANEL ====================
+  bot.command("admin", async (ctx) => {
+    if (!(await isAdmin(ctx.from?.id))) {
+      await ctx.reply("⛔ Немає доступу.");
+      return;
+    }
+    await sendAdminPanel(ctx);
+  });
+
+  bot.callbackQuery("admin_back", async (ctx) => {
+    if (!(await isAdmin(ctx.from?.id))) {
+      await ctx.answerCallbackQuery();
+      return;
+    }
+    await ctx.answerCallbackQuery();
+    await sendAdminPanel(ctx);
+  });
+
+  bot.callbackQuery("admin_add", async (ctx) => {
+    const uid = ctx.from?.id;
+    if (!(await isAdmin(uid))) {
+      await ctx.answerCallbackQuery();
+      return;
+    }
+    if (uid !== OWNER_ID) {
+      await ctx.answerCallbackQuery({ text: "Тільки власник може додавати адмінів", show_alert: true });
+      return;
+    }
+    await ctx.answerCallbackQuery();
+    userState.set(uid!, { action: "add_admin", step: "awaiting_id", data: {} });
+    await ctx.reply("✏️ Надішліть Telegram ID користувача, якого потрібно зробити адміном:");
+  });
+
+  bot.callbackQuery("admin_broadcast", async (ctx) => {
+    if (!(await isAdmin(ctx.from?.id))) {
+      await ctx.answerCallbackQuery();
+      return;
+    }
+    await ctx.answerCallbackQuery();
+    const kb = new InlineKeyboard()
+      .text("👤 Тільки ЛС", "bc_target_dm")
+      .text("👥 Тільки групи", "bc_target_groups")
+      .row()
+      .text("🌍 Всюди", "bc_target_all")
+      .row()
+      .text("⬅️ Назад", "admin_back");
+    const text = "📢 <b>Розсилка</b>\n\nОберіть аудиторію:";
+    try {
+      await ctx.editMessageText(text, { parse_mode: "HTML", reply_markup: kb });
+    } catch {
+      await ctx.reply(text, { parse_mode: "HTML", reply_markup: kb });
+    }
+  });
+
+  bot.callbackQuery(/^bc_target_(dm|groups|all)$/, async (ctx) => {
+    const uid = ctx.from?.id;
+    if (!(await isAdmin(uid))) {
+      await ctx.answerCallbackQuery();
+      return;
+    }
+    const target = ctx.match[1] as "dm" | "groups" | "all";
+    await ctx.answerCallbackQuery();
+    userState.set(uid!, { action: "broadcast", step: "awaiting_content", data: { target } });
+    await ctx.reply("✏️ Надішліть повідомлення для розсилки (текст, фото, відео — будь-що). Воно буде скопійовано отримувачам як є.");
+  });
+
+  bot.callbackQuery("admin_writeas", async (ctx) => {
+    if (!(await isAdmin(ctx.from?.id))) {
+      await ctx.answerCallbackQuery();
+      return;
+    }
+    await ctx.answerCallbackQuery();
+    await sendGroupPicker(ctx, 1);
+  });
+
+  bot.callbackQuery(/^wa_page_(\d+)$/, async (ctx) => {
+    if (!(await isAdmin(ctx.from?.id))) {
+      await ctx.answerCallbackQuery();
+      return;
+    }
+    await ctx.answerCallbackQuery();
+    await sendGroupPicker(ctx, parseInt(ctx.match[1], 10) || 1);
+  });
+
+  bot.callbackQuery(/^wa_pick_(-?\d+)$/, async (ctx) => {
+    const uid = ctx.from?.id;
+    if (!(await isAdmin(uid))) {
+      await ctx.answerCallbackQuery();
+      return;
+    }
+    const targetChatId = Number(ctx.match[1]);
+    await ctx.answerCallbackQuery();
+    userState.set(uid!, { action: "write_as", step: "awaiting_content", data: { targetChatId } });
+    await ctx.reply("✏️ Надішліть повідомлення, яке бот надішле у вибраний чат від свого імені.");
+  });
+
+  bot.callbackQuery("admin_stats", async (ctx) => {
+    if (!(await isAdmin(ctx.from?.id))) {
+      await ctx.answerCallbackQuery();
+      return;
+    }
+    await ctx.answerCallbackQuery();
+    await sendFullStats(ctx);
+  });
+
+  bot.command("requests", async (ctx) => {
+    if (!(await isAdmin(ctx.from?.id))) return;
+    await sendAdminRequestsQueue(ctx, 1);
+  });
+
+  bot.callbackQuery(/^admin_requests_(\d+)$/, async (ctx) => {
+    if (!(await isAdmin(ctx.from?.id))) {
+      await ctx.answerCallbackQuery();
+      return;
+    }
+    await ctx.answerCallbackQuery();
+    await sendAdminRequestsQueue(ctx, parseInt(ctx.match[1], 10) || 1);
+  });
+
+  bot.callbackQuery(/^admreq_view_(.+)$/, async (ctx) => {
+    if (!(await isAdmin(ctx.from?.id))) {
+      await ctx.answerCallbackQuery();
+      return;
+    }
+    await ctx.answerCallbackQuery();
+    await sendAdminRequestDetail(ctx, ctx.match[1]);
+  });
+
+  bot.callbackQuery(/^admreq_status_(.+)_(pending|in_review|checking|verified)$/, async (ctx) => {
+    if (!(await isAdmin(ctx.from?.id))) {
+      await ctx.answerCallbackQuery();
+      return;
+    }
+    const id = ctx.match[1];
+    const status = ctx.match[2];
+    try {
+      await ensureTables();
+      await db.$executeRawUnsafe(`UPDATE "BotRequest" SET status = $1, "updatedAt" = NOW() WHERE id = $2`, status, id);
+      await ctx.answerCallbackQuery({ text: "✅ Статус оновлено" });
+      await sendAdminRequestDetail(ctx, id);
+    } catch (e) {
+      console.error("status update error", e);
+      await ctx.answerCallbackQuery({ text: "⚠️ Помилка", show_alert: true });
+    }
+  });
+
+  bot.callbackQuery(/^admreq_delete_(.+)$/, async (ctx) => {
+    if (!(await isAdmin(ctx.from?.id))) {
+      await ctx.answerCallbackQuery();
+      return;
+    }
+    const id = ctx.match[1];
+    try {
+      await ensureTables();
+      await db.$executeRawUnsafe(`DELETE FROM "BotRequestProof" WHERE "requestId" = $1`, id);
+      await db.$executeRawUnsafe(`DELETE FROM "BotRequestVote" WHERE "requestId" = $1`, id);
+      await db.$executeRawUnsafe(`DELETE FROM "BotRequest" WHERE id = $1`, id);
+      await ctx.answerCallbackQuery({ text: "🗑 Видалено" });
+      await sendAdminRequestsQueue(ctx, 1);
+    } catch (e) {
+      console.error("delete request error", e);
+      await ctx.answerCallbackQuery({ text: "⚠️ Помилка", show_alert: true });
+    }
+  });
+
+  // ==================== PUBLIC: /statistic ====================
+  bot.command("statistic", async (ctx) => {
+    const lang = getUserLanguage(ctx.from?.id, ctx.from?.language_code);
+    try {
+      await ensureTables();
+      const now = new Date();
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      const [searchesToday, searchesMonth, searchesTotal, groupsCountRows] = await Promise.all([
+        db.searchLog.count({ where: { createdAt: { gte: todayStart } } }),
+        db.searchLog.count({ where: { createdAt: { gte: monthStart } } }),
+        db.searchLog.count(),
+        db.$queryRawUnsafe(`SELECT COUNT(*)::int as count FROM "BotGroup" WHERE active = true`),
+      ]);
+      const groupsCount = Number((groupsCountRows as any[])[0]?.count || 0);
+
+      const labels: Record<SupportedLang, { title: string; today: string; month: string; total: string; groups: string }> = {
+        ua: { title: "📊 Загальна статистика бота", today: "Запитів сьогодні", month: "Запитів за місяць", total: "Запитів за весь час", groups: "Груп з ботом" },
+        ru: { title: "📊 Общая статистика бота", today: "Запросов сегодня", month: "Запросов за месяц", total: "Запросов за всё время", groups: "Групп с ботом" },
+        en: { title: "📊 Overall bot statistics", today: "Requests today", month: "Requests this month", total: "Requests all-time", groups: "Groups with the bot" },
+        pl: { title: "📊 Ogólne statystyki bota", today: "Zapytań dzisiaj", month: "Zapytań w tym miesiącu", total: "Zapytań łącznie", groups: "Grup z botem" },
+      };
+      const l = labels[lang];
+      const text = `${l.title}\n\n🔍 ${l.today}: <b>${searchesToday}</b>\n🔍 ${l.month}: <b>${searchesMonth}</b>\n🔍 ${l.total}: <b>${searchesTotal}</b>\n👥 ${l.groups}: <b>${groupsCount}</b>`;
+      await ctx.reply(text, {
+        parse_mode: "HTML",
+        reply_markup: new InlineKeyboard().url(t[lang].btnOpenSite, "https://frostscambase.vercel.app/"),
+      });
+    } catch (e) {
+      console.error("statistic error", e);
+      await ctx.reply(t[lang].error, { parse_mode: "HTML" });
+    }
+  });
+
+  // ==================== PUBLIC: /settings (per-chat ads toggle) ====================
+  bot.command("settings", async (ctx) => {
+    const lang = getUserLanguage(ctx.from?.id, ctx.from?.language_code);
+    const chatId = ctx.chat?.id;
+    if (!chatId) return;
+    if (ctx.chat?.type !== "private") {
+      try {
+        const member = await ctx.api.getChatMember(chatId, ctx.from!.id);
+        if (!["administrator", "creator"].includes(member.status)) {
+          await ctx.reply(xt.settingsNoRights[lang]);
+          return;
+        }
+      } catch (e) {
+        console.error("getChatMember failed", e);
+      }
+    }
+    await sendSettingsPanel(ctx, lang, chatId);
+  });
+
+  bot.callbackQuery(/^settings_toggle_ads_(-?\d+)$/, async (ctx) => {
+    const lang = getUserLanguage(ctx.from?.id, ctx.from?.language_code);
+    const chatId = Number(ctx.match[1]);
+    if (ctx.chat?.type !== "private") {
+      try {
+        const member = await ctx.api.getChatMember(chatId, ctx.from!.id);
+        if (!["administrator", "creator"].includes(member.status)) {
+          await ctx.answerCallbackQuery({ text: xt.settingsNoRights[lang], show_alert: true });
+          return;
+        }
+      } catch {}
+    }
+    try {
+      await ensureTables();
+      const current = await getChatAdsDisabled(chatId);
+      const next = !current;
+      await db.$executeRawUnsafe(
+        `INSERT INTO "ChatSettings" ("chatId","adsDisabled","updatedAt") VALUES ($1,$2,NOW())
+         ON CONFLICT ("chatId") DO UPDATE SET "adsDisabled" = $2, "updatedAt" = NOW()`,
+        chatId, next
+      );
+      chatSettingsCache.set(chatId, { disabled: next, ts: Date.now() });
+      await ctx.answerCallbackQuery({ text: next ? xt.settingsAdsOff[lang] : xt.settingsAdsOn[lang] });
+      await sendSettingsPanel(ctx, lang, chatId, true);
+    } catch (e) {
+      console.error("toggle ads error", e);
+      await ctx.answerCallbackQuery({ text: "⚠️ Error", show_alert: true });
+    }
+  });
+
+  // ==================== PUBLIC: /addbot + /botrating ====================
+  bot.command("addbot", async (ctx) => {
+    const uid = ctx.from?.id;
+    const lang = getUserLanguage(uid, ctx.from?.language_code);
+    if (ctx.chat?.type !== "private") {
+      await ctx.reply(xt.dmOnly[lang]);
+      return;
+    }
+    try {
+      await ensureTables();
+      const countRows = (await db.$queryRawUnsafe(
+        `SELECT COUNT(*)::int as count FROM "BotRequest" WHERE "telegramUserId" = $1`,
+        uid
+      )) as any[];
+      const cnt = Number(countRows[0]?.count || 0);
+      if (cnt >= 2) {
+        await ctx.reply(xt.maxReached[lang]);
+        return;
+      }
+    } catch (e) {
+      console.error("addbot count check failed", e);
+    }
+    userState.set(uid!, { action: "addbot", step: "username", data: {} });
+    await ctx.reply(xt.askUsername[lang], { parse_mode: "HTML" });
+  });
+
+  bot.command("botrating", async (ctx) => {
+    const lang = getUserLanguage(ctx.from?.id, ctx.from?.language_code);
+    await sendBotRatingList(ctx, lang, 1);
+  });
+
+  bot.callbackQuery(/^brate_page_(\d+)$/, async (ctx) => {
+    const lang = getUserLanguage(ctx.from?.id, ctx.from?.language_code);
+    await ctx.answerCallbackQuery();
+    await sendBotRatingList(ctx, lang, parseInt(ctx.match[1], 10) || 1, true);
+  });
+
+  bot.callbackQuery("brate_addbot_hint", async (ctx) => {
+    const lang = getUserLanguage(ctx.from?.id, ctx.from?.language_code);
+    await ctx.answerCallbackQuery({ text: xt.addBotHint[lang], show_alert: true });
+  });
+
+  bot.callbackQuery(/^brate_view_(.+)$/, async (ctx) => {
+    const lang = getUserLanguage(ctx.from?.id, ctx.from?.language_code);
+    await ctx.answerCallbackQuery();
+    await sendBotRatingDetail(ctx, lang, ctx.match[1]);
+  });
+
+  bot.callbackQuery("brate_noop", async (ctx) => {
+    await ctx.answerCallbackQuery();
+  });
+
+  bot.callbackQuery(/^brate_vote_(.+)$/, async (ctx) => {
+    const lang = getUserLanguage(ctx.from?.id, ctx.from?.language_code);
+    const id = ctx.match[1];
+    const uid = ctx.from?.id;
+    if (!uid) {
+      await ctx.answerCallbackQuery();
+      return;
+    }
+    try {
+      await ensureTables();
+      await db.$executeRawUnsafe(`INSERT INTO "BotRequestVote" ("requestId","userId") VALUES ($1,$2) ON CONFLICT DO NOTHING`, id, uid);
+      await db.$executeRawUnsafe(
+        `UPDATE "BotRequest" SET likes = (SELECT COUNT(*) FROM "BotRequestVote" WHERE "requestId" = $1) WHERE id = $1`,
+        id
+      );
+      await ctx.answerCallbackQuery({ text: xt.votedToast[lang] });
+      await sendBotRatingDetail(ctx, lang, id);
+    } catch (e) {
+      console.error("vote error", e);
+      await ctx.answerCallbackQuery({ text: "⚠️ Error", show_alert: true });
+    }
+  });
+
+  bot.callbackQuery(/^brate_checked_(.+)$/, async (ctx) => {
+    const lang = getUserLanguage(ctx.from?.id, ctx.from?.language_code);
+    const id = ctx.match[1];
+    const uid = ctx.from?.id;
+    await ctx.answerCallbackQuery();
+    if (!uid) return;
+    if (ctx.chat?.type !== "private") {
+      await ctx.reply(xt.proofDmOnly[lang]);
+      return;
+    }
+    userState.set(uid, { action: "proof", step: "ask_withdrew", data: { requestId: id } });
+    await ctx.reply(xt.askWithdrew[lang], {
+      reply_markup: new InlineKeyboard()
+        .text(xt.yes[lang], `proof_withdrew_yes_${id}`)
+        .text(xt.no[lang], `proof_withdrew_no_${id}`),
+    });
+  });
+
+  bot.callbackQuery(/^proof_withdrew_(yes|no)_(.+)$/, async (ctx) => {
+    const uid = ctx.from?.id;
+    const lang = getUserLanguage(uid, ctx.from?.language_code);
+    const withdrew = ctx.match[1] === "yes";
+    const id = ctx.match[2];
+    await ctx.answerCallbackQuery();
+    if (!uid) return;
+    userState.set(uid, { action: "proof", step: "screenshot1", data: { requestId: id, withdrew } });
+    await ctx.reply(xt.askScreenshot1[lang]);
+  });
 
   // /start
   bot.command("start", async (ctx) => {
@@ -839,7 +2238,7 @@ async function sendScammerCard(ctx: any, scammer: any, lang: SupportedLang) {
   const safeDesc = escapeHtml((scammer.description || "").slice(0, 600)) || (lang === "ua" ? "Опис відсутній" : lang === "ru" ? "Описания нет" : lang === "pl" ? "Brak opisu" : "No description");
   const safeProof = escapeHtml(scammer.proofLink || "");
   const safeAmount = escapeHtml(scammer.scamAmount ? `${scammer.scamAmount} ${scammer.scamCurrency || ""}` : "");
-  const safeType = escapeHtml(scammer.scammerType || "");
+  const safeType = escapeHtml(formatScammerType(scammer.scammerType, lang));
 
   const dateObj = scammer.updatedAt || scammer.createdAt || new Date();
   const localeMap: Record<SupportedLang, string> = { ua: "uk-UA", ru: "ru-RU", pl: "pl-PL", en: "en-US" };
@@ -880,29 +2279,28 @@ async function sendScammerCard(ctx: any, scammer: any, lang: SupportedLang) {
   text += `👍 ${likeCount} / 👎 ${dislikeCount}\n`;
   text += `${t[lang].addedDate}: <b>${formattedDate}</b>\n`;
   if (safeProof) text += `🧾 <b>${lbl.proofs}:</b> ${safeProof ? `<a href="${escapeHtml(scammer.proofLink)}">link</a>` : "—"}\n`;
+
+  const chatId = ctx.chat?.id;
+  const adsDisabled = chatId ? await getChatAdsDisabled(chatId) : false;
+
   text += `\n───────────────\n`;
-  text += `🌐 <b>${lbl.site}:</b> https://frostscambase.vercel.app/\n`;
-  text += `💬 <b>${lbl.chat}:</b> @wocmf\n`;
+  if (!adsDisabled) {
+    text += `🌐 <b>${lbl.site}:</b> https://frostscambase.vercel.app/\n`;
+    text += `💬 <b>${lbl.chat}:</b> @wocmf\n`;
+  }
 
-  const kb = new InlineKeyboard()
-    .url(t[lang].btnOpenSite, `https://frostscambase.vercel.app/?q=${encodeURIComponent(scammer.name)}`)
-    .url(t[lang].btnAppeal, `https://frostscambase.vercel.app/`)
-    .row()
-    .url(t[lang].btnReport, "https://frostscambase.vercel.app/")
-    .url(t[lang].btnChat, "https://t.me/wocmf")
-    .row()
-    .url(t[lang].btnSupport, "https://t.me/send?start=IVkrkNlUFFtA")
-    .text(t[lang].btnCheckMore, "lang_ua"); // dummy to show language chooser as check more? Actually we want language chooser
-
-  // Improve last row - check more triggers language chooser? Better to just offer lang change
-  const finalKb = new InlineKeyboard()
-    .url(t[lang].btnOpenSite, `https://frostscambase.vercel.app/?q=${encodeURIComponent(scammer.name)}`)
-    .row()
-    .url(t[lang].btnReport, "https://frostscambase.vercel.app/")
-    .url(t[lang].btnChat, "https://t.me/wocmf")
-    .row()
-    .url(t[lang].btnSupport, "https://t.me/send?start=IVkrkNlUFFtA")
-    .text("🌐 Language / Мова", "lang_ua");
+  const finalKb = adsDisabled
+    ? new InlineKeyboard()
+        .url(t[lang].btnSupport, "https://t.me/send?start=IVkrkNlUFFtA")
+        .text("🌐 Language / Мова", "lang_ua")
+    : new InlineKeyboard()
+        .url(t[lang].btnOpenSite, `https://frostscambase.vercel.app/?q=${encodeURIComponent(scammer.name)}`)
+        .row()
+        .url(t[lang].btnReport, "https://frostscambase.vercel.app/")
+        .url(t[lang].btnChat, "https://t.me/wocmf")
+        .row()
+        .url(t[lang].btnSupport, "https://t.me/send?start=IVkrkNlUFFtA")
+        .text("🌐 Language / Мова", "lang_ua");
 
   // If proof is image, send photo
   const isImage = scammer.proofLink && /\.(jpe?g|png|webp|gif|bmp|avif)(\?.*)?$/i.test(scammer.proofLink);
@@ -944,7 +2342,7 @@ async function sendBotsList(ctx: any, lang: SupportedLang, page: number, isEdit 
 
     const where = {
       status: "verified",
-      scammerType: { contains: "Бот", mode: "insensitive" as const },
+      scammerType: { contains: "bot", mode: "insensitive" as const },
     };
 
     const [total, items] = await Promise.all([
