@@ -34,6 +34,8 @@ import {
   ChevronLeft,
   Copy,
   Check,
+  Filter,
+  Hash,
   BarChart3,
   Database,
   FileText,
@@ -894,143 +896,103 @@ function SearchView() {
         </div>
       </div>
 
-      {/* Floating scammers when not searching */}
-      {!searched && !tagSearchResults && <FloatingScammers />}
-
-      {/* Tag search bar — status types like СКАМ, ПРОВЕРЕН, etc. */}
+      {/* Tag search — wrap chips, no carousel */}
       {!searched && (
-        <div className="mt-5 px-2">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <div className="w-1 h-4 rounded-full bg-gradient-to-b from-blue-500 to-purple-500" />
-              <p className="text-[13px] font-semibold text-foreground/80 tracking-wide">Поиск по статусам</p>
-              {selectedTags.length > 0 && (
-                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-blue-500/20 text-blue-400">
-                  {selectedTags.length} выбрано
-                </span>
+        <div className="mt-4">
+          <div className="glass rounded-2xl p-3.5">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2 min-w-0">
+                <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-blue-500/20 to-cyan-500/15 border border-blue-500/20 flex items-center justify-center shrink-0">
+                  <Filter className="w-3.5 h-3.5 text-blue-400" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-[13px] font-semibold leading-tight">Фильтр по статусам</p>
+                  <p className="text-[10px] text-muted-foreground">можно выбрать несколько</p>
+                </div>
+              </div>
+              {allTags.length > 0 && (
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {selectedTags.length > 0 && (
+                    <button
+                      onClick={clearTagSearch}
+                      className="h-7 px-2.5 rounded-lg text-[11px] text-muted-foreground hover:text-foreground hover:bg-white/5 transition-colors"
+                    >
+                      Сбросить
+                    </button>
+                  )}
+                  <button
+                    onClick={selectedTags.length === allTags.length ? clearTagSearch : selectAllTags}
+                    className="h-7 px-2.5 rounded-lg text-[11px] font-semibold text-blue-400 hover:text-blue-300 hover:bg-blue-500/10 transition-colors"
+                  >
+                    {selectedTags.length === allTags.length ? 'Снять все' : 'Все'}
+                  </button>
+                </div>
               )}
             </div>
-            {allTags.length > 0 && (
-              <div className="flex items-center gap-1.5">
-                {selectedTags.length > 0 && (
-                  <button
-                    onClick={clearTagSearch}
-                    className="text-[11px] text-muted-foreground hover:text-foreground transition-colors"
-                  >
-                    Сбросить
-                  </button>
-                )}
-                <button
-                  onClick={selectAllTags}
-                  className="text-[11px] font-semibold text-blue-400 hover:text-blue-300 transition-colors"
-                >
-                  {selectedTags.length === allTags.length ? 'Снять все' : 'Все'}
-                </button>
-              </div>
-            )}
-          </div>
-          {allTags.length > 0 ? (
-            <div className="relative">
-              {/* Левая стрелка — только десктоп */}
-              <button
-                onClick={() => scrollTags('left')}
-                className="hidden sm:flex absolute left-0 top-1/2 -translate-y-1/2 z-20 w-7 h-7 rounded-full glass items-center justify-center hover:bg-white/10 transition-colors shrink-0"
-                aria-label="Прокрутить влево"
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-              <div
-                ref={tagScrollRef}
-                className="flex gap-2 overflow-x-auto pb-2 scrollbar-none sm:px-9 snap-x snap-mandatory scroll-smooth"
-                onWheel={(e) => {
-                  if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
-                    e.currentTarget.scrollLeft += e.deltaY
-                    e.preventDefault()
-                  }
-                }}
-              >
+
+            {allTags.length > 0 ? (
+              <div className="flex flex-wrap gap-1.5">
                 {allTags.map((tag, idx) => {
                   const isSelected = selectedTags.some(t => t.key === tag.key)
                   return (
                     <motion.button
                       key={tag.key}
+                      type="button"
                       onClick={() => handleTagToggle({ key: tag.key, text: tag.text, color: tag.color })}
-                      initial={{ opacity: 0, y: 12, scale: 0.9 }}
-                      animate={{ opacity: 1, y: 0, scale: 1 }}
-                      transition={{ delay: idx * 0.05, type: 'spring', stiffness: 400, damping: 25 }}
-                      whileHover={{ scale: 1.06, y: -1 }}
-                      whileTap={{ scale: 0.97 }}
-                      className="relative snap-start shrink-0 group"
+                      initial={{ opacity: 0, scale: 0.92 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ delay: Math.min(idx * 0.03, 0.25) }}
+                      whileTap={{ scale: 0.96 }}
+                      className="inline-flex items-center gap-1.5 h-8 pl-2 pr-1.5 rounded-full border text-[12px] font-semibold transition-all duration-200"
+                      style={isSelected ? {
+                        backgroundColor: tag.color,
+                        color: tag.textColor || '#fff',
+                        borderColor: tag.color,
+                        boxShadow: `0 4px 14px ${tag.color}40`,
+                      } : {
+                        backgroundColor: tag.color + '18',
+                        color: tag.textColor || tag.color,
+                        borderColor: tag.color + '40',
+                      }}
                     >
-                      {/* Glow backdrop */}
-                      <div
-                        className="absolute -inset-1 rounded-2xl opacity-0 group-hover:opacity-40 blur-md transition-opacity duration-300"
-                        style={{ backgroundColor: tag.color }}
-                      />
-                      {/* Active ring glow */}
-                      {isSelected && (
-                        <motion.div
-                          layoutId={`tagGlow-${tag.key}`}
-                          className="absolute -inset-1.5 rounded-2xl blur-md"
-                          style={{ backgroundColor: tag.color, opacity: 0.35 }}
-                          transition={{ type: 'spring', stiffness: 350, damping: 30 }}
+                      {isSelected ? (
+                        <Check className="w-3 h-3 shrink-0" strokeWidth={3} />
+                      ) : (
+                        <span
+                          className="w-1.5 h-1.5 rounded-full shrink-0"
+                          style={{ backgroundColor: tag.color }}
                         />
                       )}
-                      {/* Button body */}
-                      <div
-                        className={`relative flex items-center gap-1.5 px-4 py-2 rounded-2xl text-[12px] font-semibold backdrop-blur-sm border transition-all duration-200 ${
-                          isSelected ? 'border-transparent shadow-lg' : 'border-white/10 dark:border-white/10 bg-white/5 dark:bg-white/5 hover:border-white/20'
-                        }`}
-                        style={isSelected ? {
-                          backgroundColor: tag.color + 'dd',
-                          color: tag.textColor,
-                          borderColor: tag.color,
-                          boxShadow: `0 4px 20px ${tag.color}55, 0 0 40px ${tag.color}22`
-                        } : {
-                          backgroundColor: tag.color + '15',
-                          color: tag.textColor,
-                          borderColor: tag.color + '30',
+                      <span className="truncate max-w-[140px]">{tag.text}</span>
+                      <span
+                        className="min-w-[1.25rem] h-5 px-1.5 rounded-full text-[10px] font-bold flex items-center justify-center"
+                        style={{
+                          backgroundColor: isSelected ? 'rgba(0,0,0,0.18)' : tag.color + '28',
+                          color: tag.textColor || tag.color,
                         }}
                       >
-                        <span
-                          className="w-2 h-2 rounded-full shrink-0"
-                          style={{
-                            backgroundColor: isSelected ? tag.textColor : tag.color,
-                            boxShadow: isSelected ? `0 0 6px ${tag.textColor}` : `0 0 6px ${tag.color}`
-                          }}
-                        />
-                        <span>{tag.text}</span>
-                        <span
-                          className="ml-0.5 text-[10px] font-bold px-1.5 py-0 rounded-lg"
-                          style={{
-                            backgroundColor: isSelected ? tag.textColor + '25' : tag.color + '20',
-                            color: tag.textColor,
-                          }}
-                        >
-                          {tag.count}
-                        </span>
-                      </div>
+                        {tag.count}
+                      </span>
                     </motion.button>
                   )
                 })}
               </div>
-              {/* Правая стрелка — только десктоп */}
-              <button
-                onClick={() => scrollTags('right')}
-                className="hidden sm:flex absolute right-0 top-1/2 -translate-y-1/2 z-20 w-7 h-7 rounded-full glass items-center justify-center hover:bg-white/10 transition-colors shrink-0"
-                aria-label="Прокрутить вправо"
-              >
-                <ChevronRight className="w-4 h-4" />
-              </button>
-              {/* Fade edges (не перекрываем стрелки на десктопе) */}
-              <div className="sm:hidden absolute left-0 top-0 bottom-2 w-6 bg-gradient-to-r from-background to-transparent pointer-events-none" />
-              <div className="sm:hidden absolute right-0 top-0 bottom-2 w-6 bg-gradient-to-l from-background to-transparent pointer-events-none" />
-            </div>
-          ) : (
-            <p className="text-xs text-muted-foreground/50">Нет статусов</p>
-          )}
+            ) : (
+              <p className="text-xs text-muted-foreground/50">Нет статусов</p>
+            )}
+
+            {tagSearchLoading && selectedTags.length > 0 && (
+              <div className="flex items-center gap-2 mt-3 pt-3 border-t border-white/5">
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-400" />
+                <span className="text-[11px] text-muted-foreground">Ищем по выбранным статусам…</span>
+              </div>
+            )}
+          </div>
         </div>
       )}
+
+      {/* Floating scammers when not searching */}
+      {!searched && !tagSearchResults && <FloatingScammers />}
 
       {/* Tag search results */}
       {tagSearchResults && (
@@ -1285,9 +1247,11 @@ function Top10View() {
   const { setSelectedScammer } = useAppStore()
   const [data, setData] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const [topMode, setTopMode] = useState<'search' | 'exp'>('search')
+  const [topMode, setTopMode] = useState<'search' | 'exp' | 'donors'>('search')
   const [expData, setExpData] = useState<any[]>([])
   const [expLoading, setExpLoading] = useState(false)
+  const [donorsData, setDonorsData] = useState<any[]>([])
+  const [donorsLoading, setDonorsLoading] = useState(false)
 
   useEffect(() => {
     async function load() {
@@ -1314,6 +1278,16 @@ function Top10View() {
       .finally(() => setExpLoading(false))
   }, [topMode])
 
+  useEffect(() => {
+    if (topMode !== 'donors') return
+    setDonorsLoading(true)
+    fetch('/api/top-donors')
+      .then(r => r.json())
+      .then(d => setDonorsData(d.results || []))
+      .catch(() => {})
+      .finally(() => setDonorsLoading(false))
+  }, [topMode])
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -1333,8 +1307,8 @@ function Top10View() {
         <h2 className="text-2xl font-bold mb-1">
           🔥 <span className="bg-gradient-to-r from-orange-400 to-red-400 bg-clip-text text-transparent">Топ</span>
         </h2>
-        {/* Tabs */}
-        <div className="flex items-center justify-center gap-2 mt-3">
+        {/* Tabs - 3 режима, без NEW */}
+        <div className="flex items-center justify-center gap-2 mt-3 flex-wrap">
           <button
             onClick={() => setTopMode('search')}
             className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-all duration-200 ${
@@ -1347,19 +1321,28 @@ function Top10View() {
           </button>
           <button
             onClick={() => setTopMode('exp')}
-            className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-all duration-200 flex items-center gap-1.5 ${
+            className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-all duration-200 ${
               topMode === 'exp'
                 ? 'bg-gradient-to-r from-purple-500/20 to-blue-500/20 text-purple-300 border border-purple-500/30'
                 : 'text-muted-foreground hover:text-foreground/70'
             }`}
           >
             По Exp
-            <span className="text-[9px] font-bold px-1.5 py-0 rounded-md bg-gradient-to-r from-purple-500 to-blue-500 text-white leading-none">NEW</span>
+          </button>
+          <button
+            onClick={() => setTopMode('donors')}
+            className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-all duration-200 flex items-center gap-1 ${
+              topMode === 'donors'
+                ? 'bg-gradient-to-r from-yellow-500/20 to-amber-500/20 text-yellow-300 border border-yellow-500/30'
+                : 'text-muted-foreground hover:text-foreground/70'
+            }`}
+          >
+            <span>💎</span> Донатеры
           </button>
         </div>
       </div>
 
-      {/* === EXP TOP === */}
+      {/* === EXP TOP (без NEW, с Sponsor бейджем) === */}
       {topMode === 'exp' && (
         <>
           {expLoading ? (
@@ -1381,8 +1364,8 @@ function Top10View() {
                   transition={{ delay: i * 0.06, type: 'spring', stiffness: 300, damping: 25 }}
                   className="rounded-2xl border bg-card/50 backdrop-blur-sm overflow-hidden"
                   style={{
-                    borderColor: i === 0 ? 'rgba(168,85,247,0.3)' : i === 1 ? 'rgba(139,92,246,0.2)' : 'rgba(100,100,200,0.1)',
-                    boxShadow: i === 0 ? '0 0 20px rgba(168,85,247,0.15)' : i === 1 ? '0 0 12px rgba(139,92,246,0.1)' : 'none',
+                    borderColor: u.isSponsor ? 'rgba(234,179,8,0.4)' : i === 0 ? 'rgba(168,85,247,0.3)' : i === 1 ? 'rgba(139,92,246,0.2)' : 'rgba(100,100,200,0.1)',
+                    boxShadow: u.isSponsor ? '0 0 20px rgba(234,179,8,0.2)' : i === 0 ? '0 0 20px rgba(168,85,247,0.15)' : i === 1 ? '0 0 12px rgba(139,92,246,0.1)' : 'none',
                   }}
                 >
                   <div className="flex items-center gap-3 p-3.5">
@@ -1391,7 +1374,9 @@ function Top10View() {
                       <div
                         className="w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm text-white"
                         style={{
-                          background: i === 0
+                          background: u.isSponsor
+                            ? 'linear-gradient(135deg, #eab308, #f59e0b)'
+                            : i === 0
                             ? 'linear-gradient(135deg, #f59e0b, #ef4444)'
                             : i === 1
                             ? 'linear-gradient(135deg, #8b5cf6, #6366f1)'
@@ -1405,7 +1390,7 @@ function Top10View() {
                     </div>
 
                     {/* Avatar */}
-                    <Avatar className="h-10 w-10 shrink-0 border-2" style={{ borderColor: i < 3 ? 'rgba(168,85,247,0.4)' : 'transparent' }}>
+                    <Avatar className="h-10 w-10 shrink-0 border-2" style={{ borderColor: u.isSponsor ? 'rgba(234,179,8,0.5)' : i < 3 ? 'rgba(168,85,247,0.4)' : 'transparent' }}>
                       {u.image && <AvatarImage src={u.image} />}
                       <AvatarFallback className="bg-gradient-to-br from-purple-500 to-blue-500 text-white font-bold">
                         {u.username.charAt(0).toUpperCase()}
@@ -1414,8 +1399,13 @@ function Top10View() {
 
                     {/* Info */}
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <p className="font-semibold text-sm truncate">{u.username}</p>
+                        {u.isSponsor && (
+                          <span className="text-[9px] px-1.5 py-0.5 rounded-full font-bold shrink-0 bg-gradient-to-r from-yellow-400 to-amber-500 text-black border border-yellow-300/50 shadow-[0_0_8px_rgba(234,179,8,0.5)] animate-tag-sparkle">
+                            ✨ Sponsor
+                          </span>
+                        )}
                         {u.tag && (
                           <span
                             className="text-[9px] px-1.5 py-0.5 rounded-full font-semibold shrink-0"
@@ -1426,7 +1416,7 @@ function Top10View() {
                         )}
                       </div>
                       <p className="text-[11px] text-muted-foreground mt-0.5">
-                        {u.approvedSubmissions} принятых заявок
+                        {u.approvedSubmissions} принятых заявок {u.donated > 0 ? `• 💰 ${u.donated.toLocaleString('ru-RU')}` : ''}
                       </p>
                     </div>
 
@@ -1452,6 +1442,80 @@ function Top10View() {
                         </span>
                       </span>
                     </div>
+                  </div>
+                </motion.div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
+      {/* === TOP ДОНАТЕРОВ — новый топ === */}
+      {topMode === 'donors' && (
+        <>
+          {donorsLoading ? (
+            <div className="flex items-center justify-center py-16">
+              <Loader2 className="w-6 h-6 animate-spin text-yellow-500" />
+            </div>
+          ) : donorsData.length === 0 ? (
+            <div className="text-center py-16">
+              <span className="text-4xl mb-3 block">💎</span>
+              <p className="text-muted-foreground text-sm">Пока нет донатеров</p>
+              <p className="text-[11px] text-muted-foreground/70 mt-1">Стань первым — поддержи проект</p>
+            </div>
+          ) : (
+            <div className="space-y-2.5">
+              {donorsData.map((u, i) => (
+                <motion.div
+                  key={u.id}
+                  initial={{ opacity: 0, x: -15 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: i * 0.06, type: 'spring', stiffness: 300, damping: 25 }}
+                  className="rounded-2xl border bg-card/50 backdrop-blur-sm overflow-hidden"
+                  style={{
+                    borderColor: i === 0 ? 'rgba(234,179,8,0.5)' : i === 1 ? 'rgba(234,179,8,0.3)' : 'rgba(234,179,8,0.15)',
+                    boxShadow: i === 0 ? '0 0 20px rgba(234,179,8,0.25)' : i === 1 ? '0 0 16px rgba(234,179,8,0.15)' : 'none',
+                  }}
+                >
+                  <div className="flex items-center gap-3 p-3.5">
+                    <div className="w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm text-black shrink-0"
+                      style={{
+                        background: i === 0 ? 'linear-gradient(135deg, #facc15, #eab308)' : i === 1 ? 'linear-gradient(135deg, #e5e7eb, #9ca3af)' : i === 2 ? 'linear-gradient(135deg, #d97706, #92400e)' : 'linear-gradient(135deg, rgba(234,179,8,0.3), rgba(234,179,8,0.15))',
+                      }}>
+                      {i + 1}
+                    </div>
+                    <Avatar className="h-10 w-10 shrink-0 border-2" style={{ borderColor: 'rgba(234,179,8,0.5)' }}>
+                      {u.image && <AvatarImage src={u.image} />}
+                      <AvatarFallback className="bg-gradient-to-br from-yellow-400 to-amber-500 text-black font-bold">
+                        {u.username.charAt(0).toUpperCase()}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="font-semibold text-sm truncate">{u.username}</p>
+                        <span className="text-[9px] px-1.5 py-0.5 rounded-full font-bold shrink-0 bg-gradient-to-r from-yellow-400 to-amber-500 text-black border border-yellow-300/50 shadow-[0_0_8px_rgba(234,179,8,0.5)]">
+                          ✨ Sponsor
+                        </span>
+                        {u.tag && (
+                          <span className="text-[9px] px-1.5 py-0.5 rounded-full font-semibold shrink-0" style={{ backgroundColor: u.tag.color + '22', color: u.tag.textColor, border: `1px solid ${u.tag.color}44` }}>
+                            {u.tag.text}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-muted-foreground mt-0.5">
+                        Уровень {calcLevel(u.exp || 0).level} • {u.approvedSubmissions || 0} заявок
+                      </p>
+                    </div>
+                    {(u.donated || 0) > 0 && (
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <span className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-gradient-to-r from-yellow-500/20 to-amber-500/20 border border-yellow-500/30">
+                        <span className="text-sm">💰</span>
+                        <span className="text-sm font-bold text-yellow-300">
+                          {(u.donated || 0).toLocaleString('ru-RU')}
+                        </span>
+                      </span>
+                    </div>
+                    )}
                   </div>
                 </motion.div>
               ))}
@@ -3427,6 +3491,11 @@ export default function Home() {
       </AnimatePresence>
       <AnimatePresence>
         {selectedScammer && <ScamerDetailModal key="detail-modal" scammer={selectedScammer} onClose={() => setSelectedScammer(null)} />}
+      </AnimatePresence>
+    </div>
+  )
+}
+e={() => setSelectedScammer(null)} />}
       </AnimatePresence>
     </div>
   )
