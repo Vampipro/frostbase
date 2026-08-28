@@ -11,7 +11,7 @@ import {
   Loader2, Eye, EyeOff, X, ChevronDown, ArrowLeft, ChevronLeft, ChevronRight,
   Terminal, Database, Activity, Settings, LogOut, RefreshCw, Tag, MessageSquare,
   Gamepad2, Play, Pause,
-  Download, Clock, Scale, Menu, Link as LinkIcon, Zap,
+  Download, Clock, Scale, Menu, Link as LinkIcon, Zap, Heart, DollarSign, Gem,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -73,7 +73,7 @@ interface Stats {
   dbChangesToday: number
 }
 
-type PanelTab = 'dashboard' | 'scammers' | 'users' | 'submissions' | 'comments' | 'appeals' | 'stats' | 'add' | 'statuses' | 'export' | 'exp'
+type PanelTab = 'dashboard' | 'scammers' | 'users' | 'submissions' | 'comments' | 'appeals' | 'stats' | 'add' | 'statuses' | 'export' | 'exp' | 'sponsors'
 
 // ==================== PING PONG GAME ====================
 function PingPongGame() {
@@ -530,6 +530,20 @@ export default function PanelPage() {
   const [expAmount, setExpAmount] = useState('')
   const [expUserSearch, setExpUserSearch] = useState('')
   const [expUserResults, setExpUserResults] = useState<any[]>([])
+
+  // Sponsors management
+  const [sponsorSearch, setSponsorSearch] = useState('')
+  const [sponsorSearchResults, setSponsorSearchResults] = useState<any[]>([])
+  const [sponsorSearchLoading, setSponsorSearchLoading] = useState(false)
+  const [sponsorEditUser, setSponsorEditUser] = useState<any>(null)
+  const [sponsorDonated, setSponsorDonated] = useState('')
+  const [sponsorIsSponsor, setSponsorIsSponsor] = useState(true)
+  const [sponsorNewName, setSponsorNewName] = useState('')
+  const [sponsorNewDonated, setSponsorNewDonated] = useState('')
+  const [sponsorNewIsSponsor, setSponsorNewIsSponsor] = useState(true)
+  const [sponsorNewImage, setSponsorNewImage] = useState('')
+  const [sponsorCreating, setSponsorCreating] = useState(false)
+  const [sponsorShowCreate, setSponsorShowCreate] = useState(false)
 
   // Reject with reason
   const [rejectSub, setRejectSub] = useState<Submission | null>(null)
@@ -1296,6 +1310,94 @@ export default function PanelPage() {
     } catch { toast.error('Ошибка') }
   }
 
+  // === Sponsors handlers ===
+  const handleSponsorSearch = async () => {
+    const q = sponsorSearch.trim()
+    setSponsorSearchLoading(true)
+    try {
+      const params = new URLSearchParams({ limit: '20', page: '1' })
+      if (q) params.set('search', q)
+      const res = await fetch(`/api/panel/sponsors?${params}`)
+      const data = await res.json()
+      if (!res.ok) { toast.error(data.error); return }
+      setSponsorSearchResults(data.results || [])
+    } catch { toast.error('Ошибка') }
+    finally { setSponsorSearchLoading(false) }
+  }
+
+  const handleSponsorEdit = (user: any) => {
+    setSponsorEditUser(user)
+    setSponsorDonated(String(user.donated || 0))
+    setSponsorIsSponsor(user.isSponsor ?? true)
+  }
+
+  const handleSponsorSave = async () => {
+    if (!sponsorEditUser) return
+    const donated = parseInt(sponsorDonated)
+    if (isNaN(donated) || donated < 0 || !Number.isInteger(donated)) {
+      toast.error('Сумма должна быть целым числом >= 0')
+      return
+    }
+    try {
+      const res = await fetch('/api/panel/sponsors', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: sponsorEditUser.id, isSponsor: sponsorIsSponsor, donated }),
+      })
+      const data = await res.json()
+      if (!res.ok) { toast.error(data.error); return }
+      toast.success('Спонсор обновлен')
+      setSponsorEditUser(null)
+      setSponsorDonated('')
+      // refresh list
+      handleSponsorSearch()
+    } catch { toast.error('Ошибка') }
+  }
+
+  const handleSponsorCreate = async () => {
+    const name = sponsorNewName.trim()
+    if (!name) { toast.error('Введи имя'); return }
+    const donated = sponsorNewDonated === '' ? 0 : parseInt(sponsorNewDonated)
+    if (isNaN(donated) || donated < 0 || !Number.isInteger(donated)) {
+      toast.error('Сумма должна быть целым числом >= 0')
+      return
+    }
+    setSponsorCreating(true)
+    try {
+      const res = await fetch('/api/panel/sponsors', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: name,
+          donated,
+          isSponsor: sponsorNewIsSponsor,
+          image: sponsorNewImage.trim(),
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) { toast.error(data.error); return }
+      toast.success('Донатер добавлен без аккаунта')
+      setSponsorNewName('')
+      setSponsorNewDonated('')
+      setSponsorNewImage('')
+      setSponsorNewIsSponsor(true)
+      setSponsorShowCreate(false)
+      handleSponsorSearch()
+    } catch { toast.error('Ошибка') }
+    finally { setSponsorCreating(false) }
+  }
+
+  const handleSponsorDelete = async (userId: string) => {
+    if (!confirm('Убрать спонсора и обнулить донат?')) return
+    try {
+      const res = await fetch(`/api/panel/sponsors?userId=${userId}`, { method: 'DELETE' })
+      const data = await res.json()
+      if (!res.ok) { toast.error(data.error); return }
+      toast.success('Спонсор удален')
+      handleSponsorSearch()
+    } catch { toast.error('Ошибка') }
+  }
+
   const startEdit = (scammer: Scammer) => {
     setEditScammer(scammer)
     setEditName(scammer.name)
@@ -1371,6 +1473,7 @@ export default function PanelPage() {
               { id: 'add' as const, icon: Plus, label: 'Добавить' },
               { id: 'statuses' as const, icon: Tag, label: 'Типы статусов' },
               { id: 'exp' as const, icon: Zap, label: 'ЭКСПААААААА' },
+              { id: 'sponsors' as const, icon: Gem, label: 'Спонсоры' },
               { id: 'export' as const, icon: Download, label: 'Экспорт' },
             ].map((item) => {
               const Icon = item.icon
@@ -1485,6 +1588,7 @@ export default function PanelPage() {
                     { id: 'add' as const, icon: Plus, label: 'Добавить' },
                     { id: 'statuses' as const, icon: Tag, label: 'Типы статусов' },
                     { id: 'exp' as const, icon: Zap, label: 'ЭКСПААААААА' },
+                    { id: 'sponsors' as const, icon: Gem, label: 'Спонсоры' },
                     { id: 'export' as const, icon: Download, label: 'Экспорт' },
                   ].map((item) => {
                     const Icon = item.icon
@@ -2880,6 +2984,154 @@ export default function PanelPage() {
                 </motion.div>
               )}
 
+              {tab === 'sponsors' && (
+                <motion.div key="sponsors" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                  <div className="mb-6">
+                    <h2 className="text-2xl font-bold font-mono text-green-300">{'>'} Спонсоры</h2>
+                    <p className="text-sm text-green-600 font-mono mt-1">{'// '}Управление донатерами, приписка Sponsor и топ донатеров</p>
+                  </div>
+
+                  {/* Поиск юзеров */}
+                  <div className="glass rounded-xl p-4 mb-4 border border-yellow-500/20">
+                    <h3 className="text-sm font-bold font-mono text-yellow-300 mb-3">{'>'} Найти пользователя</h3>
+                    <div className="flex gap-2">
+                      <Input
+                        placeholder="Никнейм..."
+                        value={sponsorSearch}
+                        onChange={(e) => setSponsorSearch(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && handleSponsorSearch()}
+                        className="h-10 flex-1 rounded-lg bg-yellow-500/5 border-yellow-500/20 text-yellow-200 font-mono"
+                      />
+                      <Button onClick={handleSponsorSearch} disabled={sponsorSearchLoading} className="h-10 bg-yellow-600 hover:bg-yellow-700 text-white font-mono rounded-lg">
+                        {sponsorSearchLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+                      </Button>
+                    </div>
+                    <p className="text-[10px] text-yellow-600/70 font-mono mt-2">Оставь пустым чтобы показать текущий топ донатеров • Ищи по нику для добавления</p>
+                  </div>
+
+                  <div className="mb-4">
+                    {!sponsorShowCreate ? (
+                      <Button
+                        variant="outline"
+                        onClick={() => setSponsorShowCreate(true)}
+                        className="h-10 border-yellow-500/30 text-yellow-300 hover:bg-yellow-500/10 font-mono rounded-lg"
+                      >
+                        <Plus className="w-4 h-4 mr-1" /> Добавить без аккаунта
+                      </Button>
+                    ) : (
+                      <div className="glass rounded-xl p-4 border border-yellow-500/20">
+                        <div className="flex items-center justify-between mb-3">
+                          <h3 className="text-sm font-bold font-mono text-yellow-300">{'>'} Добавить без аккаунта</h3>
+                          <button onClick={() => setSponsorShowCreate(false)} className="p-1 rounded hover:bg-yellow-500/10">
+                            <X className="w-4 h-4 text-yellow-400" />
+                          </button>
+                        </div>
+                        <p className="text-[10px] text-yellow-600/70 font-mono mb-3">Человек не регистрировался — просто имя в топ. Войти под этим ником нельзя.</p>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div>
+                            <label className="text-[11px] text-yellow-600 font-mono mb-1 block">Имя *</label>
+                            <Input placeholder="Как показать в топе..." value={sponsorNewName} onChange={e => setSponsorNewName(e.target.value.slice(0, 40))} className="h-10 rounded-lg bg-yellow-500/5 border-yellow-500/20 text-yellow-200 font-mono" />
+                          </div>
+                          <div>
+                            <label className="text-[11px] text-yellow-600 font-mono mb-1 block">Сумма доната</label>
+                            <Input type="number" min="0" placeholder="0" value={sponsorNewDonated} onChange={e => setSponsorNewDonated(e.target.value.replace(/[^0-9]/g, ''))} className="h-10 rounded-lg bg-yellow-500/5 border-yellow-500/20 text-yellow-200 font-mono" />
+                          </div>
+                          <div className="sm:col-span-2">
+                            <label className="text-[11px] text-yellow-600 font-mono mb-1 block">Аватар (ссылка, необязательно)</label>
+                            <Input placeholder="https://..." value={sponsorNewImage} onChange={e => setSponsorNewImage(e.target.value)} className="h-10 rounded-lg bg-yellow-500/5 border-yellow-500/20 text-yellow-200 font-mono" />
+                          </div>
+                          <div className="flex items-center gap-2 sm:col-span-2">
+                            <input type="checkbox" checked={sponsorNewIsSponsor} onChange={e => setSponsorNewIsSponsor(e.target.checked)} className="w-4 h-4 rounded border-yellow-500/20" />
+                            <span className="text-xs font-mono text-yellow-300">Приписка ✨ Sponsor</span>
+                          </div>
+                        </div>
+                        <Button onClick={handleSponsorCreate} disabled={sponsorCreating || !sponsorNewName.trim()} className="mt-3 h-10 bg-yellow-600 hover:bg-yellow-700 text-white font-mono rounded-lg">
+                          {sponsorCreating ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Plus className="w-4 h-4 mr-1" /> Добавить в топ</>}
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Результаты */}
+                  <div className="space-y-2">
+                    {sponsorSearchResults.length === 0 && !sponsorSearchLoading ? (
+                      <div className="glass rounded-xl p-8 border border-yellow-500/10 text-center">
+                        <Gem className="w-8 h-8 mx-auto mb-2 text-yellow-600" />
+                        <p className="font-mono text-yellow-600 text-sm">Нет результатов. Нажми поиск.</p>
+                      </div>
+                    ) : (
+                      sponsorSearchResults.map((u: any) => (
+                        <motion.div key={u.id} initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} className="glass rounded-xl p-4 border border-yellow-500/20">
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                            <div className="flex items-center gap-3 min-w-0">
+                              <div className="w-10 h-10 rounded-lg bg-yellow-500/20 flex items-center justify-center font-bold text-yellow-300">
+                                {u.username.charAt(0).toUpperCase()}
+                              </div>
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <p className="font-mono font-semibold text-sm truncate text-yellow-100">{u.username}</p>
+                                  {u.isSponsor && (
+                                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-gradient-to-r from-yellow-400 to-amber-500 text-black font-bold border border-yellow-300/50">✨ Sponsor</span>
+                                  )}
+                                  {u.isPlaceholder && (
+                                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/10 text-yellow-200/80 border border-yellow-500/20 font-mono">без аккаунта</span>
+                                  )}
+                                  <span className="text-[10px] text-yellow-600 font-mono">{u.role}</span>
+                                </div>
+                                <p className="text-[11px] text-yellow-600/70 font-mono">
+                                  {u.donated > 0 ? `💰 ${u.donated}` : ''}
+                                  {!u.isPlaceholder && `${u.donated > 0 ? ' • ' : ''}⚡ ${u.exp || 0} EXP`}
+                                  {(u.donated > 0 || !u.isPlaceholder) ? ' • ' : ''}
+                                  {new Date(u.createdAt).toLocaleDateString('ru-RU')}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="flex gap-2 shrink-0">
+                              <Button size="sm" onClick={() => handleSponsorEdit(u)} className="h-8 bg-yellow-600 hover:bg-yellow-700 text-white font-mono text-[11px] rounded-lg">
+                                <Edit3 className="w-3 h-3 mr-1" /> Изменить
+                              </Button>
+                              {u.isSponsor && (
+                                <Button size="sm" variant="outline" onClick={() => handleSponsorDelete(u.id)} className="h-8 border-red-500/20 text-red-400 hover:bg-red-500/10 font-mono text-[11px] rounded-lg">
+                                  <Trash2 className="w-3 h-3" />
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+                        </motion.div>
+                      ))
+                    )}
+                  </div>
+
+                  {/* Модалка редактирования */}
+                  {sponsorEditUser && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={() => setSponsorEditUser(null)}>
+                      <div className="glass rounded-2xl p-6 w-full max-w-sm border border-yellow-500/20" onClick={e => e.stopPropagation()}>
+                        <h3 className="font-mono font-bold text-yellow-300 mb-4">Редактировать спонсора — {sponsorEditUser.username}</h3>
+                        <div className="space-y-3">
+                          <div>
+                            <label className="text-[11px] text-yellow-600 font-mono mb-1 block">Сумма доната (всего)</label>
+                            <Input type="number" min="0" placeholder="0" value={sponsorDonated} onChange={e => setSponsorDonated(e.target.value.replace(/[^0-9]/g, ''))} className="h-10 rounded-lg bg-yellow-500/5 border-yellow-500/20 text-yellow-200 font-mono" />
+                            <p className="text-[10px] text-yellow-600/60 font-mono mt-1">Целое число, 0 = убрать донат но оставить Sponsor если чекнут</p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <input type="checkbox" checked={sponsorIsSponsor} onChange={e => setSponsorIsSponsor(e.target.checked)} className="w-4 h-4 rounded border-yellow-500/20" />
+                            <span className="text-xs font-mono text-yellow-300">Приписка Sponsor (✨ Sponsor)</span>
+                          </div>
+                          <div className="flex gap-2 pt-2">
+                            <Button onClick={handleSponsorSave} className="flex-1 h-10 bg-yellow-600 hover:bg-yellow-700 text-white font-mono rounded-lg">
+                              Сохранить
+                            </Button>
+                            <Button variant="outline" onClick={() => setSponsorEditUser(null)} className="h-10 border-yellow-500/20 text-yellow-400 font-mono rounded-lg">
+                              Отмена
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </motion.div>
+              )}
+
               {tab === 'export' && (
                 <motion.div key="export" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
                   <div className="mb-6">
@@ -3430,6 +3682,30 @@ export default function PanelPage() {
                         title="Показать тег"
                       >
                         <Eye className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              {/* Pagination */}
+              {!hiddenTagsLoading && hiddenTagsTotal > 20 && (
+                <div className="mt-4 pt-3 border-t border-yellow-500/10">
+                  <Pagination
+                    current={hiddenTagsPage}
+                    total={Math.ceil(hiddenTagsTotal / 20)}
+                    onPageChange={(p) => loadHiddenTags(p, hiddenTagsSearch)}
+                  />
+                </div>
+              )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
+                       <Eye className="w-3 h-3" />
                       </button>
                     </div>
                   ))
