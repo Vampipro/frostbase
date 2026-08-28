@@ -14,6 +14,8 @@ export async function GET() {
         username: true,
         image: true,
         exp: true,
+        isSponsor: true,
+        donated: true,
         _count: {
           select: { submissions: true },
         },
@@ -36,6 +38,8 @@ export async function GET() {
           username: u.username,
           image: u.image,
           exp: u.exp,
+          isSponsor: (u as any).isSponsor || false,
+          donated: (u as any).donated || 0,
           approvedSubmissions: approvedCount,
           totalSubmissions: u._count.submissions,
           tag: tag || null,
