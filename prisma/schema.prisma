@@ -8,15 +8,18 @@ datasource db {
 }
 
 model User {
-  id        String   @id @default(cuid())
-  username  String   @unique
-  password  String
-  role      String   @default("user")
-  image     String   @default("")
-  exp       Int      @default(0)
-  banReason String   @default("")
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id         String   @id @default(cuid())
+  username   String   @unique
+  password   String
+  role       String   @default("user")
+  image      String   @default("")
+  exp        Int      @default(0)
+  banReason  String   @default("")
+  isSponsor     Boolean  @default(false)
+  donated       Int      @default(0)
+  isPlaceholder Boolean  @default(false) // донатер без реального аккаунта
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   submissions Submission[]
   searchLogs  SearchLog[]
