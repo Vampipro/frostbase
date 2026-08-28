@@ -36,6 +36,13 @@ const userLanguages = new Map<number, SupportedLang>();
 type UserState = { action: string; step: string; data: Record<string, any> };
 const userState = new Map<number, UserState>();
 
+// Small inline keyboard with just a "Cancel" button, attached to every
+// prompt that starts/continues a multi-step flow (admin actions, /addbot,
+// proof upload) so the user always has a way out mid-flow.
+function cancelKb(lang: SupportedLang): InlineKeyboard {
+  return new InlineKeyboard().text(xt.cancelBtn[lang], "cancel_flow");
+}
+
 function genId(): string {
   try {
     // @ts-ignore
@@ -474,7 +481,52 @@ const xt: Record<string, Record<SupportedLang, string>> = {
   statusPending: { ua: "⏳ Очікується", ru: "⏳ Ожидается", en: "⏳ Pending", pl: "⏳ Oczekuje" },
   statusInReview: { ua: "👀 Розглянуто", ru: "👀 Рассмотрено", en: "👀 Reviewed", pl: "👀 Rozpatrzono" },
   statusChecking: { ua: "🔍 Провіряється", ru: "🔍 Проверяется", en: "🔍 Being checked", pl: "🔍 W trakcie sprawdzania" },
+  statusAwaitingWithdrawal: { ua: "💸 Очікується вивід", ru: "💸 Ожидается вывод", en: "💸 Awaiting withdrawal", pl: "💸 Oczekuje na wypłatę" },
   statusVerified: { ua: "✅ Провірено", ru: "✅ Проверено", en: "✅ Verified", pl: "✅ Zweryfikowano" },
+
+  // ---- cancel button (attached to every multi-step flow prompt) ----
+  cancelBtn: { ua: "❌ Скасувати", ru: "❌ Отменить", en: "❌ Cancel", pl: "❌ Anuluj" },
+  cancelledMsg: { ua: "🚫 Дію скасовано.", ru: "🚫 Действие отменено.", en: "🚫 Action cancelled.", pl: "🚫 Anulowano." },
+  nothingToCancel: {
+    ua: "ℹ️ Немає активної дії для скасування.",
+    ru: "ℹ️ Нет активного действия для отмены.",
+    en: "ℹ️ There's no active action to cancel.",
+    pl: "ℹ️ Nie ma żadnej aktywnej akcji do anulowania.",
+  },
+
+  // ---- proof already submitted for this bot (once per account) ----
+  proofAlreadySubmitted: {
+    ua: "ℹ️ Ви вже надсилали підтвердження по цьому боту. Повторно надсилати не можна.",
+    ru: "ℹ️ Вы уже отправляли подтверждение по этому боту. Повторно отправить нельзя.",
+    en: "ℹ️ You've already submitted proof for this bot. You can't submit it again.",
+    pl: "ℹ️ Wysłałeś już potwierdzenie dla tego bota. Nie można wysłać ponownie.",
+  },
+
+  // ---- bot already exists in the main scam/verified database ----
+  alreadyInDatabase: {
+    ua: "ℹ️ Цей бот вже є в базі сайту (перевірений або вже оцінений). Додавати повторно не потрібно.",
+    ru: "ℹ️ Этот бот уже есть в базе сайта (проверен или уже оценён). Добавлять повторно не нужно.",
+    en: "ℹ️ This bot is already in the site's database (checked or already rated). No need to submit it again.",
+    pl: "ℹ️ Ten bot jest już w bazie strony (sprawdzony lub już oceniony). Nie trzeba zgłaszać ponownie.",
+  },
+
+  // ---- /garant ----
+  garantHeader: { ua: "🛡 <b>Список гарантів</b>", ru: "🛡 <b>Список гарантов</b>", en: "🛡 <b>List of guarantors</b>", pl: "🛡 <b>Lista gwarantów</b>" },
+  garantEmpty: {
+    ua: "📭 Поки що жодного гаранта не додано.",
+    ru: "📭 Пока ни одного гаранта не добавлено.",
+    en: "📭 No guarantors added yet.",
+    pl: "📭 Nie dodano jeszcze żadnego gwaranta.",
+  },
+  garantReviewsBtn: { ua: "⭐️ Відгуки", ru: "⭐️ Отзывы", en: "⭐️ Reviews", pl: "⭐️ Opinie" },
+
+  // ---- admin: proof review queue ----
+  adminProofsBtn: { ua: "🧾 Провірити пруфи", ru: "🧾 Проверить пруфы", en: "🧾 Review proofs", pl: "🧾 Sprawdź dowody" },
+  adminProofsEmpty: { ua: "📭 Немає пруфів, що очікують перевірки.", ru: "📭 Нет пруфов, ожидающих проверки.", en: "📭 No proofs awaiting review.", pl: "📭 Brak dowodów oczekujących na sprawdzenie." },
+
+  // ---- statistic: total & new-today users ----
+  usersTotalLabel: { ua: "Людей у боті всього", ru: "Людей в боте всего", en: "Total people in the bot", pl: "Łącznie osób w bocie" },
+  usersTodayLabel: { ua: "Нових сьогодні", ru: "Новых сегодня", en: "New today", pl: "Nowych dzisiaj" },
 };
 
 function statusLabelLocalized(status: string, lang: SupportedLang): string {
@@ -485,6 +537,8 @@ function statusLabelLocalized(status: string, lang: SupportedLang): string {
       return xt.statusInReview[lang];
     case "checking":
       return xt.statusChecking[lang];
+    case "awaiting_withdrawal":
+      return xt.statusAwaitingWithdrawal[lang];
     case "verified":
       return xt.statusVerified[lang];
     default:
@@ -503,6 +557,49 @@ function getUserLanguage(userId?: number, telegramLangCode?: string): SupportedL
     if (code.startsWith("uk") || code.startsWith("ua")) return "ua";
   }
   return "en";
+}
+
+const SUPPORTED_LANGS: SupportedLang[] = ["ua", "ru", "en", "pl"];
+
+// The in-memory `userLanguages` Map is what every getUserLanguage() call
+// actually reads from, but it's wiped on every cold start / redeploy — so
+// the bot would "forget" a user's explicitly chosen language. This loads
+// a previously saved choice from the DB (once per process, per user) so it
+// can populate the Map before any reply is sent for that update.
+async function preloadUserLanguage(userId: number) {
+  if (userLanguages.has(userId)) return;
+  try {
+    await ensureTables();
+    const rows = (await db.$queryRawUnsafe(
+      `SELECT "botLang" FROM "BotUser" WHERE "telegramUserId" = $1 AND "botLang" IS NOT NULL ORDER BY "updatedAt" DESC LIMIT 1`,
+      userId
+    )) as any[];
+    const stored = rows[0]?.botLang;
+    if (stored && (SUPPORTED_LANGS as string[]).includes(stored)) {
+      userLanguages.set(userId, stored as SupportedLang);
+    }
+  } catch (e) {
+    console.error("preloadUserLanguage failed", e);
+  }
+}
+
+// Persists the user's explicit language choice so it survives restarts.
+// Only written for private chats, since "BotUser" is keyed by chatId and a
+// user's DM chatId equals their own telegramUserId — that's the one place
+// we can be sure this is "the" language for that person.
+async function persistUserLanguage(chatId: number | undefined, userId: number, lang: SupportedLang, isPrivate: boolean) {
+  if (!isPrivate || !chatId) return;
+  try {
+    await ensureTables();
+    await db.$executeRawUnsafe(
+      `INSERT INTO "BotUser" ("chatId","telegramUserId","botLang","updatedAt","createdAt")
+       VALUES ($1,$2,$3,NOW(),NOW())
+       ON CONFLICT ("chatId") DO UPDATE SET "botLang" = $3, "updatedAt" = NOW()`,
+      chatId, userId, lang
+    );
+  } catch (e) {
+    console.error("persistUserLanguage failed", e);
+  }
 }
 
 function escapeHtml(text: string | null | undefined): string {
@@ -667,6 +764,7 @@ async function ensureTables(): Promise<void> {
         "step1FileId" TEXT,
         "withdrew" BOOLEAN,
         "step2FileId" TEXT,
+        "reviewed" BOOLEAN DEFAULT FALSE,
         "createdAt" TIMESTAMP DEFAULT NOW()
       )`,
     ];
@@ -675,6 +773,22 @@ async function ensureTables(): Promise<void> {
         await db.$executeRawUnsafe(sql);
       } catch (e) {
         console.error("ensureTables statement failed:", e);
+      }
+    }
+    // Additive column migrations for tables that already existed before
+    // these fields were introduced (CREATE TABLE IF NOT EXISTS won't add
+    // columns to an existing table, so we ALTER separately, safely).
+    const alters = [
+      `ALTER TABLE "BotRequestProof" ADD COLUMN IF NOT EXISTS "reviewed" BOOLEAN DEFAULT FALSE`,
+      `ALTER TABLE "BotUser" ADD COLUMN IF NOT EXISTS "createdAt" TIMESTAMP DEFAULT NOW()`,
+      `ALTER TABLE "BotUser" ADD COLUMN IF NOT EXISTS "botLang" TEXT`,
+      `ALTER TABLE "BotRequestVote" ADD COLUMN IF NOT EXISTS "createdAt" TIMESTAMP DEFAULT NOW()`,
+    ];
+    for (const sql of alters) {
+      try {
+        await db.$executeRawUnsafe(sql);
+      } catch (e) {
+        console.error("ensureTables alter failed:", e);
       }
     }
   })();
@@ -722,14 +836,38 @@ async function getChatAdsDisabled(chatId: number): Promise<boolean> {
 async function trackBotUser(chatId: number, telegramUserId: number, username?: string | null, languageCode?: string | null) {
   try {
     await ensureTables();
+    // NOTE: "createdAt" is only set on first INSERT (first time this person
+    // starts the bot) and intentionally left untouched on conflict, so it
+    // can be used later to count "new users today" (see /statistic, admin stats).
     await db.$executeRawUnsafe(
-      `INSERT INTO "BotUser" ("chatId","telegramUserId","username","languageCode","updatedAt")
-       VALUES ($1,$2,$3,$4,NOW())
+      `INSERT INTO "BotUser" ("chatId","telegramUserId","username","languageCode","updatedAt","createdAt")
+       VALUES ($1,$2,$3,$4,NOW(),NOW())
        ON CONFLICT ("chatId") DO UPDATE SET "telegramUserId"=$2,"username"=$3,"languageCode"=$4,"updatedAt"=NOW()`,
       chatId, telegramUserId, username || null, languageCode || null
     );
   } catch (e) {
     console.error("trackBotUser failed", e);
+  }
+}
+
+// Tracks a group chat from ANY message the bot sees in it, not just
+// my_chat_member updates. my_chat_member only fires when the bot's own
+// membership status changes (added/removed/promoted) — if the bot was
+// already sitting in a group before this tracking code was deployed, or if
+// that update type was ever missed, the group would never appear in
+// "BotGroup" and the bot would effectively "not see" that chat in
+// broadcast/write-as pickers. Upserting on every message is a robust fallback.
+async function trackBotGroup(chatId: number, title: string | null | undefined, type: string) {
+  try {
+    await ensureTables();
+    await db.$executeRawUnsafe(
+      `INSERT INTO "BotGroup" ("chatId","title","type","active","updatedAt")
+       VALUES ($1,$2,$3,TRUE,NOW())
+       ON CONFLICT ("chatId") DO UPDATE SET title=$2, type=$3, active=TRUE, "updatedAt"=NOW()`,
+      chatId, title || "Без назви", type
+    );
+  } catch (e) {
+    console.error("trackBotGroup failed", e);
   }
 }
 
@@ -888,10 +1026,16 @@ async function runBroadcast(ctx: any, target: "dm" | "groups" | "all") {
   const truncated = targets.length > MAX_TARGETS;
   if (truncated) targets = targets.slice(0, MAX_TARGETS);
 
-  await ctx.reply(`⏳ Розсилка розпочата. Отримувачів: ${targets.length}${truncated ? " (обмежено 500 за раз)" : ""}`);
+  const progressMsg = await ctx.reply(
+    `⏳ Розсилка розпочата. Отримувачів: ${targets.length}${truncated ? " (обмежено 500 за раз)" : ""}\n\nНадсилаю по 1 повідомленню, щоб не впертись у ліміти Telegram...`
+  );
 
   let sent = 0;
   let failed = 0;
+  // Sent strictly one at a time (sequential await, not Promise.all) with a
+  // small delay between each send — Telegram allows roughly ~30 msg/sec
+  // globally and ~1 msg/sec per chat, so going one-by-one with a delay
+  // avoids flood-control errors that batch sending would trigger.
   for (const chatId of targets) {
     try {
       await ctx.api.copyMessage(chatId, sourceChatId, messageId);
@@ -899,7 +1043,17 @@ async function runBroadcast(ctx: any, target: "dm" | "groups" | "all") {
     } catch {
       failed++;
     }
-    await new Promise((r) => setTimeout(r, 35));
+    // Periodic progress update so the admin can see it's actually going 1-by-1.
+    if ((sent + failed) % 50 === 0) {
+      try {
+        await ctx.api.editMessageText(
+          progressMsg.chat.id,
+          progressMsg.message_id,
+          `⏳ Розсилка триває... ${sent + failed}/${targets.length}\n📤 Надіслано: ${sent}\n❌ Помилок: ${failed}`
+        );
+      } catch {}
+    }
+    await new Promise((r) => setTimeout(r, 50));
   }
 
   await ctx.reply(`✅ Розсилку завершено.\n📤 Надіслано: ${sent}\n❌ Помилок: ${failed}`);
@@ -958,7 +1112,9 @@ async function sendAdminPanel(ctx: any) {
     .row()
     .text("📊 Статистика", "admin_stats")
     .row()
-    .text("📋 Черга запитів на боти", "admin_requests_1");
+    .text("📋 Черга запитів на боти", "admin_requests_1")
+    .row()
+    .text(xt.adminProofsBtn.ua, "admin_proofs_1");
   const text = "🛠 <b>Адмін-панель</b>\n\nОберіть дію:";
   if (ctx.callbackQuery) {
     try {
@@ -977,23 +1133,30 @@ async function sendFullStats(ctx: any) {
     todayStart.setHours(0, 0, 0, 0);
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
-    const [searchesToday, searchesMonth, searchesTotal, groupsCountRows, adminsCountRows, pendingRows] = await Promise.all([
+    const [searchesToday, searchesMonth, searchesTotal, groupsCountRows, adminsCountRows, pendingRows, usersTotalRows, usersTodayRows] = await Promise.all([
       db.searchLog.count({ where: { createdAt: { gte: todayStart } } }),
       db.searchLog.count({ where: { createdAt: { gte: monthStart } } }),
       db.searchLog.count(),
       db.$queryRawUnsafe(`SELECT COUNT(*)::int as count FROM "BotGroup" WHERE active = true`),
       db.$queryRawUnsafe(`SELECT COUNT(*)::int as count FROM "BotAdmin"`),
       db.$queryRawUnsafe(`SELECT COUNT(*)::int as count FROM "BotRequest" WHERE status = 'pending'`),
+      db.$queryRawUnsafe(`SELECT COUNT(*)::int as count FROM "BotUser"`),
+      db.$queryRawUnsafe(`SELECT COUNT(*)::int as count FROM "BotUser" WHERE "createdAt" >= $1`, todayStart),
     ]);
     const groupsCount = Number((groupsCountRows as any[])[0]?.count || 0);
     const adminsCount = Number((adminsCountRows as any[])[0]?.count || 0) + 1; // +owner
     const pendingCount = Number((pendingRows as any[])[0]?.count || 0);
+    const usersTotal = Number((usersTotalRows as any[])[0]?.count || 0);
+    const usersToday = Number((usersTodayRows as any[])[0]?.count || 0);
 
     const text = `📊 <b>Повна статистика</b>
 
 🔍 Запитів сьогодні: <b>${searchesToday}</b>
 🔍 Запитів за місяць: <b>${searchesMonth}</b>
 🔍 Запитів за весь час: <b>${searchesTotal}</b>
+
+🙋 Людей у боті всього: <b>${usersTotal}</b>
+🆕 Нових сьогодні: <b>${usersToday}</b>
 
 👥 Груп з ботом: <b>${groupsCount}</b>
 🛠 Адмінів: <b>${adminsCount}</b>
@@ -1019,6 +1182,8 @@ function statusLabelUa(status: string): string {
       return "👀 Розглянуто";
     case "checking":
       return "🔍 Провіряється";
+    case "awaiting_withdrawal":
+      return "💸 Очікується вивід";
     case "verified":
       return "✅ Провірено";
     default:
@@ -1101,7 +1266,11 @@ async function sendAdminRequestDetail(ctx: any, id: string) {
       .text("👀 Розглянуто", `admreq_status_${id}_in_review`)
       .row()
       .text("🔍 Провіряється", `admreq_status_${id}_checking`)
+      .text("💸 Очікується вивід", `admreq_status_${id}_awaiting_withdrawal`)
+      .row()
       .text("✅ Провірено", `admreq_status_${id}_verified`)
+      .row()
+      .text("🧾 Пруфи по заявці", `admin_proofs_req_${id}`)
       .row()
       .text("🗑 Видалити заявку", `admreq_delete_${id}`)
       .row()
@@ -1114,6 +1283,110 @@ async function sendAdminRequestDetail(ctx: any, id: string) {
     }
   } catch (e) {
     console.error("admin request detail error", e);
+    await ctx.reply("⚠️ Помилка.");
+  }
+}
+
+// ==================== ADMIN: PROOF REVIEW QUEUE ====================
+// Lists proofs users submitted via "Провірив" (brate_checked_...) that
+// haven't been marked reviewed yet, so admins can actually look at the
+// screenshots/video and approve/reject the underlying bot request.
+async function sendAdminProofsQueue(ctx: any, page: number, requestId?: string) {
+  await ensureTables();
+  const PAGE_SIZE = 8;
+  try {
+    const whereClause = requestId ? `WHERE p.reviewed = FALSE AND p."requestId" = $3` : `WHERE p.reviewed = FALSE`;
+    const params: any[] = requestId ? [PAGE_SIZE, (page - 1) * PAGE_SIZE, requestId] : [PAGE_SIZE, (page - 1) * PAGE_SIZE];
+    const rows = (await db.$queryRawUnsafe(
+      `SELECT p.*, r."botUsername" FROM "BotRequestProof" p
+       LEFT JOIN "BotRequest" r ON r.id = p."requestId"
+       ${whereClause}
+       ORDER BY p."createdAt" ASC LIMIT $1 OFFSET $2`,
+      ...params
+    )) as any[];
+    const countParams: any[] = requestId ? [requestId] : [];
+    const countRows = (await db.$queryRawUnsafe(
+      `SELECT COUNT(*)::int as count FROM "BotRequestProof" p ${requestId ? `WHERE p.reviewed = FALSE AND p."requestId" = $1` : `WHERE p.reviewed = FALSE`}`,
+      ...countParams
+    )) as any[];
+    const total = Number(countRows[0]?.count || 0);
+    const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+    if (rows.length === 0) {
+      const text = xt.adminProofsEmpty.ua;
+      const kb = new InlineKeyboard().text("⬅️ Назад", requestId ? `admreq_view_${requestId}` : "admin_back");
+      try {
+        await ctx.editMessageText(text, { reply_markup: kb });
+      } catch {
+        await ctx.reply(text, { reply_markup: kb });
+      }
+      return;
+    }
+
+    let text = `${xt.adminProofsBtn.ua} (стор. ${page}/${totalPages})\n\n`;
+    const kb = new InlineKeyboard();
+    rows.forEach((p: any, i: number) => {
+      const idx = (page - 1) * PAGE_SIZE + i + 1;
+      text += `${idx}. @${escapeHtml(p.botUsername || "?")} — <code>${p.userId}</code> — ${p.withdrew ? "вивів 💸" : "не вивів"}\n`;
+      kb.text(`${idx}. @${(p.botUsername || "?").slice(0, 12)}`, `admproof_view_${p.id}`).row();
+    });
+    const pagePrefix = requestId ? `admin_proofs_req_${requestId}_` : "admin_proofs_";
+    if (page > 1) kb.text("⬅️", `${pagePrefix}${page - 1}`);
+    if (page < totalPages) kb.text("➡️", `${pagePrefix}${page + 1}`);
+    kb.row().text("⬅️ Назад в меню", "admin_back");
+
+    try {
+      await ctx.editMessageText(text, { parse_mode: "HTML", reply_markup: kb });
+    } catch {
+      await ctx.reply(text, { parse_mode: "HTML", reply_markup: kb });
+    }
+  } catch (e) {
+    console.error("admin proofs queue error", e);
+    await ctx.reply("⚠️ Помилка завантаження пруфів.");
+  }
+}
+
+async function sendAdminProofDetail(ctx: any, proofId: string) {
+  await ensureTables();
+  try {
+    const rows = (await db.$queryRawUnsafe(
+      `SELECT p.*, r."botUsername" FROM "BotRequestProof" p LEFT JOIN "BotRequest" r ON r.id = p."requestId" WHERE p.id = $1`,
+      proofId
+    )) as any[];
+    const p = rows[0];
+    if (!p) {
+      await ctx.answerCallbackQuery({ text: "❌ Не знайдено", show_alert: true });
+      return;
+    }
+    let caption = `🤖 <b>@${escapeHtml(p.botUsername || "?")}</b>\n`;
+    caption += `👤 Юзер: <code>${p.userId}</code>\n`;
+    caption += `💸 Вивів кошти: <b>${p.withdrew ? "Так" : "Ні"}</b>\n`;
+    caption += `📅 ${new Date(p.createdAt).toLocaleString("uk-UA")}`;
+
+    const kb = new InlineKeyboard()
+      .text("✅ Відмітити перевіреним", `admproof_done_${p.id}_${p.requestId}`)
+      .row()
+      .text("⬅️ Назад до списку", "admin_proofs_1");
+
+    // Screenshot #1 (always present)
+    try {
+      if (p.step1FileId) await ctx.replyWithPhoto(p.step1FileId, { caption: "📸 Скрін №1 (заявка на вивід)" });
+    } catch (e) {
+      console.error("send proof screenshot1 failed", e);
+    }
+    // Either screenshot #2 (withdrew) or a video (didn't withdraw yet)
+    try {
+      if (p.withdrew && p.step2FileId) {
+        await ctx.replyWithPhoto(p.step2FileId, { caption: "📸 Скрін №2 (успішний вивід)" });
+      } else if (!p.withdrew && p.step2FileId) {
+        await ctx.replyWithVideo(p.step2FileId, { caption: "🎥 Відео за 3 дні" });
+      }
+    } catch (e) {
+      console.error("send proof step2 failed", e);
+    }
+    await ctx.reply(caption, { parse_mode: "HTML", reply_markup: kb });
+  } catch (e) {
+    console.error("admin proof detail error", e);
     await ctx.reply("⚠️ Помилка.");
   }
 }
@@ -1160,13 +1433,30 @@ async function processAddBotStep(ctx: any, uid: number, state: UserState): Promi
         userState.delete(uid);
         return true;
       }
+      // Also check the main scammer/verified database (not just the review
+      // queue) — the bot might already be listed there (verified, scam,
+      // suspicious, etc.) under its @username.
+      const inDb = await db.scammer.findFirst({
+        where: {
+          OR: [
+            { name: { equals: uname, mode: "insensitive" } },
+            { name: { equals: `@${uname}`, mode: "insensitive" } },
+          ],
+        },
+        select: { id: true },
+      });
+      if (inDb) {
+        await ctx.reply(xt.alreadyInDatabase[lang]);
+        userState.delete(uid);
+        return true;
+      }
     } catch (e) {
       console.error("addbot dup check failed", e);
     }
     state.data.botUsername = uname;
     state.step = "subscribers";
     userState.set(uid, state);
-    await ctx.reply(xt.askSubscribers[lang]);
+    await ctx.reply(xt.askSubscribers[lang], { reply_markup: cancelKb(lang) });
     return true;
   }
 
@@ -1179,7 +1469,7 @@ async function processAddBotStep(ctx: any, uid: number, state: UserState): Promi
     state.data.subscribers = n;
     state.step = "reward";
     userState.set(uid, state);
-    await ctx.reply(xt.askReward[lang]);
+    await ctx.reply(xt.askReward[lang], { reply_markup: cancelKb(lang) });
     return true;
   }
 
@@ -1213,6 +1503,17 @@ async function saveProof(ctx: any, uid: number, state: UserState, step2FileId: s
   const lang = getUserLanguage(uid, ctx.from?.language_code);
   try {
     await ensureTables();
+    // Defensive re-check right before insert (in addition to the check when
+    // the flow starts) — guards against a user racing two parallel flows.
+    const existing = (await db.$queryRawUnsafe(
+      `SELECT 1 FROM "BotRequestProof" WHERE "requestId" = $1 AND "userId" = $2 LIMIT 1`,
+      state.data.requestId, uid
+    )) as any[];
+    if (existing.length > 0) {
+      await ctx.reply(xt.proofAlreadySubmitted[lang]);
+      userState.delete(uid);
+      return;
+    }
     const id = genId();
     await db.$executeRawUnsafe(
       `INSERT INTO "BotRequestProof" ("id","requestId","userId","step1FileId","withdrew","step2FileId")
@@ -1234,25 +1535,25 @@ async function processProofStep(ctx: any, uid: number, state: UserState): Promis
 
   if (state.step === "screenshot1") {
     if (!photo) {
-      await ctx.reply(xt.needPhoto[lang]);
+      await ctx.reply(xt.needPhoto[lang], { reply_markup: cancelKb(lang) });
       return true;
     }
     state.data.step1FileId = photo;
     if (state.data.withdrew) {
       state.step = "screenshot2";
       userState.set(uid, state);
-      await ctx.reply(xt.askScreenshot2[lang]);
+      await ctx.reply(xt.askScreenshot2[lang], { reply_markup: cancelKb(lang) });
     } else {
       state.step = "video3days";
       userState.set(uid, state);
-      await ctx.reply(xt.askVideo[lang]);
+      await ctx.reply(xt.askVideo[lang], { reply_markup: cancelKb(lang) });
     }
     return true;
   }
 
   if (state.step === "screenshot2") {
     if (!photo) {
-      await ctx.reply(xt.needPhoto[lang]);
+      await ctx.reply(xt.needPhoto[lang], { reply_markup: cancelKb(lang) });
       return true;
     }
     await saveProof(ctx, uid, state, photo);
@@ -1261,7 +1562,7 @@ async function processProofStep(ctx: any, uid: number, state: UserState): Promis
 
   if (state.step === "video3days") {
     if (!video) {
-      await ctx.reply(xt.needVideo[lang]);
+      await ctx.reply(xt.needVideo[lang], { reply_markup: cancelKb(lang) });
       return true;
     }
     await saveProof(ctx, uid, state, video);
@@ -1377,6 +1678,7 @@ async function registerBotCommands(bot: Bot) {
     ua: [
       { command: "check", description: "Перевірити @username, ID, посилання або reply на учасника" },
       { command: "bots", description: "Список верифікованих ботів" },
+      { command: "garant", description: "Список гарантів" },
       { command: "botrating", description: "Рейтинг ботів на перевірку + голосування" },
       { command: "addbot", description: "Додати свого бота на перевірку" },
       { command: "stats", description: "Статистика бази" },
@@ -1389,6 +1691,7 @@ async function registerBotCommands(bot: Bot) {
     ru: [
       { command: "check", description: "Проверить @username, ID, ссылку или reply на участника" },
       { command: "bots", description: "Список верифицированных ботов" },
+      { command: "garant", description: "Список гарантов" },
       { command: "botrating", description: "Рейтинг ботов на проверку + голосование" },
       { command: "addbot", description: "Добавить своего бота на проверку" },
       { command: "stats", description: "Статистика базы" },
@@ -1401,6 +1704,7 @@ async function registerBotCommands(bot: Bot) {
     en: [
       { command: "check", description: "Check @username, ID, link, or reply to a member" },
       { command: "bots", description: "List of verified bots" },
+      { command: "garant", description: "List of guarantors" },
       { command: "botrating", description: "Bot review rating + voting" },
       { command: "addbot", description: "Submit your bot for review" },
       { command: "stats", description: "Database stats" },
@@ -1413,6 +1717,7 @@ async function registerBotCommands(bot: Bot) {
     pl: [
       { command: "check", description: "Sprawdź @username, ID, link lub reply do uczestnika" },
       { command: "bots", description: "Lista zweryfikowanych botów" },
+      { command: "garant", description: "Lista gwarantów" },
       { command: "botrating", description: "Ranking botów do sprawdzenia + głosowanie" },
       { command: "addbot", description: "Zgłoś swojego bota do sprawdzenia" },
       { command: "stats", description: "Statystyki bazy" },
@@ -1446,6 +1751,17 @@ function setupBot(bot: Bot) {
   // Register the "/" command menu (fire-and-forget, don't block setup).
   registerBotCommands(bot).catch((e) => console.error("registerBotCommands error", e));
 
+  // ---- Global FIRST middleware: preload the user's previously chosen
+  // language from DB (survives cold starts / redeploys) before any other
+  // handler runs, so every getUserLanguage() call below sees it. ----
+  bot.use(async (ctx, next) => {
+    const uid = ctx.from?.id;
+    if (uid) {
+      await preloadUserLanguage(uid);
+    }
+    return next();
+  });
+
   // ---- FIRST handler: tracks private users (for DM broadcast) and
   // intercepts any pending multi-step flow (admin actions, /addbot, proof
   // upload). Must be registered before all other message handlers below,
@@ -1454,15 +1770,25 @@ function setupBot(bot: Bot) {
     if (ctx.chat?.type === "private" && ctx.from?.id) {
       trackBotUser(ctx.chat.id, ctx.from.id, ctx.from.username, ctx.from.language_code).catch(() => {});
     }
+    if ((ctx.chat?.type === "group" || ctx.chat?.type === "supergroup")) {
+      // Fallback tracking (see trackBotGroup comment) — makes sure the bot
+      // "sees" every chat it's actually active in, not only ones where a
+      // my_chat_member update happened to fire after this code shipped.
+      trackBotGroup(ctx.chat.id, (ctx.chat as any).title, ctx.chat.type).catch(() => {});
+    }
     const uid = ctx.from?.id;
     if (uid && userState.has(uid)) {
-      const isCommand = ctx.message?.text?.startsWith("/");
-      if (isCommand) {
+      const rawText = ctx.message?.text?.trim() || "";
+      const isCommand = rawText.startsWith("/");
+      const isCancelCommand = isCommand && rawText.split(/[\s@]/)[0] === "/cancel";
+      if (isCommand && !isCancelCommand) {
         userState.delete(uid); // cancel pending flow, let the command run normally
-      } else {
+      } else if (!isCommand) {
         const consumed = await processUserState(ctx, uid);
         if (consumed) return;
       }
+      // /cancel falls through to its own command handler below, which
+      // deletes the state itself and confirms the cancellation.
     }
     return next();
   });
@@ -1517,7 +1843,9 @@ function setupBot(bot: Bot) {
     }
     await ctx.answerCallbackQuery();
     userState.set(uid!, { action: "add_admin", step: "awaiting_id", data: {} });
-    await ctx.reply("✏️ Надішліть Telegram ID користувача, якого потрібно зробити адміном:");
+    await ctx.reply("✏️ Надішліть Telegram ID користувача, якого потрібно зробити адміном:", {
+      reply_markup: cancelKb("ua"),
+    });
   });
 
   bot.callbackQuery("admin_broadcast", async (ctx) => {
@@ -1550,7 +1878,9 @@ function setupBot(bot: Bot) {
     const target = ctx.match[1] as "dm" | "groups" | "all";
     await ctx.answerCallbackQuery();
     userState.set(uid!, { action: "broadcast", step: "awaiting_content", data: { target } });
-    await ctx.reply("✏️ Надішліть повідомлення для розсилки (текст, фото, відео — будь-що). Воно буде скопійовано отримувачам як є.");
+    await ctx.reply("✏️ Надішліть повідомлення для розсилки (текст, фото, відео — будь-що). Воно буде скопійовано отримувачам як є.", {
+      reply_markup: cancelKb("ua"),
+    });
   });
 
   bot.callbackQuery("admin_writeas", async (ctx) => {
@@ -1580,7 +1910,9 @@ function setupBot(bot: Bot) {
     const targetChatId = Number(ctx.match[1]);
     await ctx.answerCallbackQuery();
     userState.set(uid!, { action: "write_as", step: "awaiting_content", data: { targetChatId } });
-    await ctx.reply("✏️ Надішліть повідомлення, яке бот надішле у вибраний чат від свого імені.");
+    await ctx.reply("✏️ Надішліть повідомлення, яке бот надішле у вибраний чат від свого імені.", {
+      reply_markup: cancelKb("ua"),
+    });
   });
 
   bot.callbackQuery("admin_stats", async (ctx) => {
@@ -1615,7 +1947,7 @@ function setupBot(bot: Bot) {
     await sendAdminRequestDetail(ctx, ctx.match[1]);
   });
 
-  bot.callbackQuery(/^admreq_status_(.+)_(pending|in_review|checking|verified)$/, async (ctx) => {
+  bot.callbackQuery(/^admreq_status_(.+)_(pending|in_review|checking|awaiting_withdrawal|verified)$/, async (ctx) => {
     if (!(await isAdmin(ctx.from?.id))) {
       await ctx.answerCallbackQuery();
       return;
@@ -1652,6 +1984,69 @@ function setupBot(bot: Bot) {
     }
   });
 
+  // ---- Admin: proof review queue ----
+  bot.callbackQuery("admin_proofs_1", async (ctx) => {
+    if (!(await isAdmin(ctx.from?.id))) {
+      await ctx.answerCallbackQuery();
+      return;
+    }
+    await ctx.answerCallbackQuery();
+    await sendAdminProofsQueue(ctx, 1);
+  });
+
+  bot.callbackQuery(/^admin_proofs_(\d+)$/, async (ctx) => {
+    if (!(await isAdmin(ctx.from?.id))) {
+      await ctx.answerCallbackQuery();
+      return;
+    }
+    await ctx.answerCallbackQuery();
+    await sendAdminProofsQueue(ctx, parseInt(ctx.match[1], 10) || 1);
+  });
+
+  bot.callbackQuery(/^admin_proofs_req_(.+)_(\d+)$/, async (ctx) => {
+    if (!(await isAdmin(ctx.from?.id))) {
+      await ctx.answerCallbackQuery();
+      return;
+    }
+    await ctx.answerCallbackQuery();
+    await sendAdminProofsQueue(ctx, parseInt(ctx.match[2], 10) || 1, ctx.match[1]);
+  });
+
+  bot.callbackQuery(/^admin_proofs_req_([^_]+)$/, async (ctx) => {
+    if (!(await isAdmin(ctx.from?.id))) {
+      await ctx.answerCallbackQuery();
+      return;
+    }
+    await ctx.answerCallbackQuery();
+    await sendAdminProofsQueue(ctx, 1, ctx.match[1]);
+  });
+
+  bot.callbackQuery(/^admproof_view_(.+)$/, async (ctx) => {
+    if (!(await isAdmin(ctx.from?.id))) {
+      await ctx.answerCallbackQuery();
+      return;
+    }
+    await ctx.answerCallbackQuery();
+    await sendAdminProofDetail(ctx, ctx.match[1]);
+  });
+
+  bot.callbackQuery(/^admproof_done_(.+)_(.+)$/, async (ctx) => {
+    if (!(await isAdmin(ctx.from?.id))) {
+      await ctx.answerCallbackQuery();
+      return;
+    }
+    const proofId = ctx.match[1];
+    try {
+      await ensureTables();
+      await db.$executeRawUnsafe(`UPDATE "BotRequestProof" SET reviewed = TRUE WHERE id = $1`, proofId);
+      await ctx.answerCallbackQuery({ text: "✅ Відмічено як перевірене" });
+      await sendAdminProofsQueue(ctx, 1);
+    } catch (e) {
+      console.error("mark proof reviewed error", e);
+      await ctx.answerCallbackQuery({ text: "⚠️ Помилка", show_alert: true });
+    }
+  });
+
   // ==================== PUBLIC: /statistic ====================
   bot.command("statistic", async (ctx) => {
     const lang = getUserLanguage(ctx.from?.id, ctx.from?.language_code);
@@ -1661,13 +2056,17 @@ function setupBot(bot: Bot) {
       const todayStart = new Date();
       todayStart.setHours(0, 0, 0, 0);
       const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-      const [searchesToday, searchesMonth, searchesTotal, groupsCountRows] = await Promise.all([
+      const [searchesToday, searchesMonth, searchesTotal, groupsCountRows, usersTotalRows, usersTodayRows] = await Promise.all([
         db.searchLog.count({ where: { createdAt: { gte: todayStart } } }),
         db.searchLog.count({ where: { createdAt: { gte: monthStart } } }),
         db.searchLog.count(),
         db.$queryRawUnsafe(`SELECT COUNT(*)::int as count FROM "BotGroup" WHERE active = true`),
+        db.$queryRawUnsafe(`SELECT COUNT(*)::int as count FROM "BotUser"`),
+        db.$queryRawUnsafe(`SELECT COUNT(*)::int as count FROM "BotUser" WHERE "createdAt" >= $1`, todayStart),
       ]);
       const groupsCount = Number((groupsCountRows as any[])[0]?.count || 0);
+      const usersTotal = Number((usersTotalRows as any[])[0]?.count || 0);
+      const usersToday = Number((usersTodayRows as any[])[0]?.count || 0);
 
       const labels: Record<SupportedLang, { title: string; today: string; month: string; total: string; groups: string }> = {
         ua: { title: "📊 Загальна статистика бота", today: "Запитів сьогодні", month: "Запитів за місяць", total: "Запитів за весь час", groups: "Груп з ботом" },
@@ -1676,10 +2075,11 @@ function setupBot(bot: Bot) {
         pl: { title: "📊 Ogólne statystyki bota", today: "Zapytań dzisiaj", month: "Zapytań w tym miesiącu", total: "Zapytań łącznie", groups: "Grup z botem" },
       };
       const l = labels[lang];
-      const text = `${l.title}\n\n🔍 ${l.today}: <b>${searchesToday}</b>\n🔍 ${l.month}: <b>${searchesMonth}</b>\n🔍 ${l.total}: <b>${searchesTotal}</b>\n👥 ${l.groups}: <b>${groupsCount}</b>`;
+      const text = `${l.title}\n\n🔍 ${l.today}: <b>${searchesToday}</b>\n🔍 ${l.month}: <b>${searchesMonth}</b>\n🔍 ${l.total}: <b>${searchesTotal}</b>\n👥 ${l.groups}: <b>${groupsCount}</b>\n🙋 ${xt.usersTotalLabel[lang]}: <b>${usersTotal}</b>\n🆕 ${xt.usersTodayLabel[lang]}: <b>${usersToday}</b>`;
+      const adsDisabled = ctx.chat?.id ? await getChatAdsDisabled(ctx.chat.id) : false;
       await ctx.reply(text, {
         parse_mode: "HTML",
-        reply_markup: new InlineKeyboard().url(t[lang].btnOpenSite, "https://frostscambase.vercel.app/"),
+        reply_markup: adsDisabled ? undefined : new InlineKeyboard().url(t[lang].btnOpenSite, "https://frostscambase.vercel.app/"),
       });
     } catch (e) {
       console.error("statistic error", e);
@@ -1759,7 +2159,7 @@ function setupBot(bot: Bot) {
       console.error("addbot count check failed", e);
     }
     userState.set(uid!, { action: "addbot", step: "username", data: {} });
-    await ctx.reply(xt.askUsername[lang], { parse_mode: "HTML" });
+    await ctx.reply(xt.askUsername[lang], { parse_mode: "HTML", reply_markup: cancelKb(lang) });
   });
 
   bot.command("botrating", async (ctx) => {
@@ -1821,11 +2221,28 @@ function setupBot(bot: Bot) {
       await ctx.reply(xt.proofDmOnly[lang]);
       return;
     }
+    // One proof submission per account per bot — block re-entry into the
+    // flow entirely if this user already has a proof on file for this bot.
+    try {
+      await ensureTables();
+      const existing = (await db.$queryRawUnsafe(
+        `SELECT 1 FROM "BotRequestProof" WHERE "requestId" = $1 AND "userId" = $2 LIMIT 1`,
+        id, uid
+      )) as any[];
+      if (existing.length > 0) {
+        await ctx.reply(xt.proofAlreadySubmitted[lang]);
+        return;
+      }
+    } catch (e) {
+      console.error("proof dup check failed", e);
+    }
     userState.set(uid, { action: "proof", step: "ask_withdrew", data: { requestId: id } });
     await ctx.reply(xt.askWithdrew[lang], {
       reply_markup: new InlineKeyboard()
         .text(xt.yes[lang], `proof_withdrew_yes_${id}`)
-        .text(xt.no[lang], `proof_withdrew_no_${id}`),
+        .text(xt.no[lang], `proof_withdrew_no_${id}`)
+        .row()
+        .text(xt.cancelBtn[lang], "cancel_flow"),
     });
   });
 
@@ -1837,7 +2254,29 @@ function setupBot(bot: Bot) {
     await ctx.answerCallbackQuery();
     if (!uid) return;
     userState.set(uid, { action: "proof", step: "screenshot1", data: { requestId: id, withdrew } });
-    await ctx.reply(xt.askScreenshot1[lang]);
+    await ctx.reply(xt.askScreenshot1[lang], { reply_markup: cancelKb(lang) });
+  });
+
+  // ==================== CANCEL (works for any active multi-step flow) ====================
+  bot.command("cancel", async (ctx) => {
+    const uid = ctx.from?.id;
+    const lang = getUserLanguage(uid, ctx.from?.language_code);
+    if (uid && userState.has(uid)) {
+      userState.delete(uid);
+      await ctx.reply(xt.cancelledMsg[lang]);
+    } else {
+      await ctx.reply(xt.nothingToCancel[lang]);
+    }
+  });
+
+  bot.callbackQuery("cancel_flow", async (ctx) => {
+    const uid = ctx.from?.id;
+    const lang = getUserLanguage(uid, ctx.from?.language_code);
+    if (uid) userState.delete(uid);
+    await ctx.answerCallbackQuery({ text: xt.cancelledMsg[lang] });
+    try {
+      await ctx.editMessageReplyMarkup({ reply_markup: undefined });
+    } catch {}
   });
 
   // /start
@@ -1923,6 +2362,19 @@ function setupBot(bot: Bot) {
     await sendBotsList(ctx, lang, page, true);
   });
 
+  // /garant — list of guarantors (scammer records with status "garant")
+  bot.command("garant", async (ctx) => {
+    const lang = getUserLanguage(ctx.from?.id, ctx.from?.language_code);
+    await sendGarantList(ctx, lang, 1);
+  });
+
+  bot.callbackQuery(/^garant_page_(\d+)$/, async (ctx) => {
+    const page = parseInt(ctx.match[1], 10) || 1;
+    const lang = getUserLanguage(ctx.from?.id, ctx.from?.language_code);
+    await ctx.answerCallbackQuery();
+    await sendGarantList(ctx, lang, page, true);
+  });
+
   bot.command("stats", async (ctx) => {
     const lang = getUserLanguage(ctx.from?.id, ctx.from?.language_code);
     try {
@@ -1937,21 +2389,22 @@ function setupBot(bot: Bot) {
         db.scammer.count({ where: { status: "verified" } }),
       ]);
 
+      const adsDisabled = ctx.chat?.id ? await getChatAdsDisabled(ctx.chat.id) : false;
       const msg = `${t[lang].statsHeader}
 
 👤 ${lang === "ua" ? "Всього скамерів" : lang === "en" ? "Total scammers" : lang === "pl" ? "Łącznie oszustów" : "Всего скамеров"}: <b>${totalScammers}</b>
   └ 🚫 ${lang === "ua" ? "Скам" : lang === "en" ? "Scam" : lang === "pl" ? "Oszustwa" : "Скам"}: ${scamCount}
   └ ✅ ${lang === "ua" ? "Перевірено" : lang === "en" ? "Verified" : lang === "pl" ? "Zweryfikowano" : "Перевірено"}: ${verifiedCount}
 👥 ${lang === "ua" ? "Користувачів" : lang === "en" ? "Users" : lang === "pl" ? "Użytkowników" : "Користувачів"}: <b>${totalUsers}</b>
-🔍 ${lang === "ua" ? "Пошуків сьогодні" : lang === "en" ? "Searches today" : lang === "pl" ? "Wyszukiwań dzisiaj" : "Пошуків сьогодні"}: <b>${searchesToday}</b>
+🔍 ${lang === "ua" ? "Пошуків сьогодні" : lang === "en" ? "Searches today" : lang === "pl" ? "Wyszukiwań dzisiaj" : "Пошуків сьогодні"}: <b>${searchesToday}</b>${adsDisabled ? "" : `\n\n🌐 Сайт: https://frostscambase.vercel.app/`}`;
 
-🌐 Сайт: https://frostscambase.vercel.app/`;
-
+      const statsKb = new InlineKeyboard();
+      if (!adsDisabled) {
+        statsKb.url(t[lang].btnOpenSite, "https://frostscambase.vercel.app/").url(t[lang].btnChat, "https://t.me/wocmf");
+      }
       await ctx.reply(msg, {
         parse_mode: "HTML",
-        reply_markup: new InlineKeyboard()
-          .url(t[lang].btnOpenSite, "https://frostscambase.vercel.app/")
-          .url(t[lang].btnChat, "https://t.me/wocmf"),
+        reply_markup: adsDisabled ? undefined : statsKb,
       });
     } catch (e) {
       console.error("stats error", e);
@@ -1992,7 +2445,9 @@ function setupBot(bot: Bot) {
       });
       await ctx.reply(msg, {
         parse_mode: "HTML",
-        reply_markup: new InlineKeyboard().url(t[lang].btnOpenSite, "https://frostscambase.vercel.app/"),
+        reply_markup: (ctx.chat?.id && (await getChatAdsDisabled(ctx.chat.id)))
+          ? undefined
+          : new InlineKeyboard().url(t[lang].btnOpenSite, "https://frostscambase.vercel.app/"),
       });
     } catch (e) {
       console.error("top error", e);
@@ -2003,13 +2458,19 @@ function setupBot(bot: Bot) {
   // Language callback
   bot.callbackQuery(/^lang_(ua|ru|en|pl)$/, async (ctx) => {
     const lang = ctx.match[1] as SupportedLang;
-    if (ctx.from?.id) userLanguages.set(ctx.from.id, lang);
+    if (ctx.from?.id) {
+      userLanguages.set(ctx.from.id, lang);
+      persistUserLanguage(ctx.chat?.id, ctx.from.id, lang, ctx.chat?.type === "private").catch(() => {});
+    }
     await ctx.answerCallbackQuery();
+    const adsDisabled = ctx.chat?.id ? await getChatAdsDisabled(ctx.chat.id) : false;
+    const langKb = new InlineKeyboard();
+    if (!adsDisabled) {
+      langKb.url(t[lang].btnOpenSite, "https://frostscambase.vercel.app/").url(t[lang].btnChat, "https://t.me/wocmf");
+    }
     await ctx.reply(t[lang].langChanged, {
       parse_mode: "HTML",
-      reply_markup: new InlineKeyboard()
-        .url(t[lang].btnOpenSite, "https://frostscambase.vercel.app/")
-        .url(t[lang].btnChat, "https://t.me/wocmf"),
+      reply_markup: adsDisabled ? undefined : langKb,
     });
   });
 
@@ -2040,8 +2501,11 @@ function setupBot(bot: Bot) {
     }
   });
 
-  // Contact shared
+  // Contact shared — private chats only. In groups, someone sharing an
+  // unrelated contact (their own vCard, a forwarded contact card, etc.)
+  // shouldn't make the bot blast a scam-check reply into the chat.
   bot.on("message:contact", async (ctx) => {
+    if (ctx.chat?.type !== "private") return;
     const contact = ctx.message.contact;
     const userId = contact.user_id;
     if (userId) {
@@ -2052,8 +2516,11 @@ function setupBot(bot: Bot) {
     }
   });
 
-  // Forwarded message
+  // Forwarded message — private chats only. In groups, people forward all
+  // kinds of unrelated messages constantly; the bot should never auto-run a
+  // scam-check off the back of a random forward the way it does in DMs.
   bot.on("message:forward_origin", async (ctx) => {
+    if (ctx.chat?.type !== "private") return;
     // @ts-ignore grammy types
     const origin = ctx.message.forward_origin;
     if (!origin) return;
@@ -2161,12 +2628,19 @@ async function handleSearch(ctx: any, rawInput: string, forcedLang?: SupportedLa
       const queryEsc = escapeHtml(parsed.raw.slice(0, 100));
       let text = t[lang].notFound.replace("{display}", display).replace("{query}", queryEsc);
 
-      const kb = new InlineKeyboard()
-        .url(t[lang].btnAddScam, "https://frostscambase.vercel.app/")
-        .url(t[lang].btnChat, "https://t.me/wocmf")
-        .row()
-        .url(t[lang].btnOpenSite, `https://frostscambase.vercel.app/?q=${encodeURIComponent(parsed.cleanName || parsed.username || "")}`)
-        .url(t[lang].btnSupport, "https://t.me/send?start=IVkrkNlUFFtA");
+      const adsDisabled = ctx.chat?.id ? await getChatAdsDisabled(ctx.chat.id) : false;
+      // "Report scam" and "Donate" are core functions, not ads — they stay
+      // visible even when ads are disabled for this chat. Site/chat links
+      // are the ad elements and get hidden.
+      const kb = new InlineKeyboard().url(t[lang].btnAddScam, "https://frostscambase.vercel.app/");
+      if (!adsDisabled) {
+        kb.url(t[lang].btnChat, "https://t.me/wocmf")
+          .row()
+          .url(t[lang].btnOpenSite, `https://frostscambase.vercel.app/?q=${encodeURIComponent(parsed.cleanName || parsed.username || "")}`);
+      } else {
+        kb.row();
+      }
+      kb.url(t[lang].btnSupport, "https://t.me/send?start=IVkrkNlUFFtA");
 
       await ctx.reply(text, {
         parse_mode: "HTML",
@@ -2207,7 +2681,10 @@ async function handleSearch(ctx: any, rawInput: string, forcedLang?: SupportedLa
       if (i % 2 === 0 && i !== 0) kb.row();
       kb.text(`${i + 1}. ${r.name.slice(0, 15)}`, `select_${r.id}`);
     });
-    kb.row().url(t[lang].btnOpenSite, `https://frostscambase.vercel.app/?q=${encodeURIComponent(parsed.cleanName || "")}`);
+    const adsDisabledMulti = ctx.chat?.id ? await getChatAdsDisabled(ctx.chat.id) : false;
+    if (!adsDisabledMulti) {
+      kb.row().url(t[lang].btnOpenSite, `https://frostscambase.vercel.app/?q=${encodeURIComponent(parsed.cleanName || "")}`);
+    }
 
     await ctx.reply(header, {
       parse_mode: "HTML",
@@ -2397,7 +2874,8 @@ async function sendBotsList(ctx: any, lang: SupportedLang, page: number, isEdit 
     kb.row();
     if (safePage > 1) kb.text(t[lang].btnPrev, `bots_page_${safePage - 1}`);
     if (safePage < totalPages) kb.text(t[lang].btnNext, `bots_page_${safePage + 1}`);
-    kb.row().url(t[lang].btnOpenSite, "https://frostscambase.vercel.app/");
+    const botsAdsDisabled = ctx.chat?.id ? await getChatAdsDisabled(ctx.chat.id) : false;
+    if (!botsAdsDisabled) kb.row().url(t[lang].btnOpenSite, "https://frostscambase.vercel.app/");
 
     if (isEdit) {
       try {
@@ -2410,6 +2888,76 @@ async function sendBotsList(ctx: any, lang: SupportedLang, page: number, isEdit 
     }
   } catch (e) {
     console.error("bots list error", e);
+    await ctx.reply(t[lang].error, { parse_mode: "HTML" });
+  }
+}
+
+// ==================== GARANT LIST (scammer records with status "garant") ====================
+async function sendGarantList(ctx: any, lang: SupportedLang, page: number, isEdit = false) {
+  const PAGE_SIZE = 10;
+  try {
+    if (!isEdit) {
+      await ctx.replyWithChatAction("typing").catch(() => {});
+    }
+
+    const where = { status: "garant" };
+
+    const [total, items] = await Promise.all([
+      db.scammer.count({ where }),
+      db.scammer.findMany({
+        where,
+        orderBy: [{ createdAt: "desc" }],
+        skip: Math.max(0, (page - 1) * PAGE_SIZE),
+        take: PAGE_SIZE,
+      }),
+    ]);
+
+    if (total === 0) {
+      const text = xt.garantEmpty[lang];
+      if (isEdit) {
+        await ctx.editMessageText(text, { parse_mode: "HTML" }).catch(() => ctx.reply(text, { parse_mode: "HTML" }));
+      } else {
+        await ctx.reply(text, { parse_mode: "HTML" });
+      }
+      return;
+    }
+
+    const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+    const safePage = Math.min(Math.max(1, page), totalPages);
+
+    let text = `${xt.garantHeader[lang]}\n${t[lang].botsPage.replace("{page}", String(safePage)).replace("{total}", String(totalPages))}\n\n`;
+    items.forEach((s, i) => {
+      const idx = (safePage - 1) * PAGE_SIZE + i + 1;
+      const name = escapeHtml(s.name?.startsWith("@") ? s.name : `@${s.name}`);
+      const idPart = s.telegramUserId ? ` — <code>${escapeHtml(s.telegramUserId)}</code>` : "";
+      const desc = escapeHtml((s.description || "").slice(0, 150));
+      text += `${idx}. <b>${name}</b>${idPart}\n`;
+      if (desc) text += `   📝 ${desc}\n`;
+      if (s.proofLink) text += `   ${xt.garantReviewsBtn[lang]}: ${escapeHtml(s.proofLink)}\n`;
+    });
+
+    const kb = new InlineKeyboard();
+    items.forEach((s, i) => {
+      if (i % 2 === 0 && i !== 0) kb.row();
+      kb.text(`${t[lang].btnDetails} ${(safePage - 1) * PAGE_SIZE + i + 1}`, `select_${s.id}`);
+    });
+    kb.row();
+    if (safePage > 1) kb.text(t[lang].btnPrev, `garant_page_${safePage - 1}`);
+    if (safePage < totalPages) kb.text(t[lang].btnNext, `garant_page_${safePage + 1}`);
+    const adsDisabled = ctx.chat?.id ? await getChatAdsDisabled(ctx.chat.id) : false;
+    if (!adsDisabled) kb.row().url(t[lang].btnOpenSite, "https://frostscambase.vercel.app/");
+
+    if (isEdit) {
+      try {
+        await ctx.editMessageText(text, { parse_mode: "HTML", reply_markup: kb, link_preview_options: { is_disabled: true } });
+      } catch {
+        await ctx.reply(text, { parse_mode: "HTML", reply_markup: kb, link_preview_options: { is_disabled: true } });
+      }
+    } else {
+      await ctx.reply(text, { parse_mode: "HTML", reply_markup: kb, link_preview_options: { is_disabled: true } });
+    }
+  } catch (e) {
+    console.error("garant list error", e);
     await ctx.reply(t[lang].error, { parse_mode: "HTML" });
   }
 }
