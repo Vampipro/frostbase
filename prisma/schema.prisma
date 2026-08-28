@@ -178,6 +178,14 @@ model Complaint {
   createdAt DateTime @default(now())
 }
 
+model BannedIp {
+  id        String   @id @default(cuid())
+  ip        String   @unique
+  reason    String   @default("")
+  bannedBy  String   @default("")
+  createdAt DateTime @default(now())
+}
+
 model ExpRule {
   id         String   @id @default(cuid())
   actionType String   // "submission", "comment", "search"
