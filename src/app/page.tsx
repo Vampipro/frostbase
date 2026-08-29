@@ -3495,8 +3495,3 @@ export default function Home() {
     </div>
   )
 }
-e={() => setSelectedScammer(null)} />}
-      </AnimatePresence>
-    </div>
-  )
-}
