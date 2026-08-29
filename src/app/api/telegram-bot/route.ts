@@ -527,6 +527,64 @@ const xt: Record<string, Record<SupportedLang, string>> = {
   // ---- statistic: total & new-today users ----
   usersTotalLabel: { ua: "Людей у боті всього", ru: "Людей в боте всего", en: "Total people in the bot", pl: "Łącznie osób w bocie" },
   usersTodayLabel: { ua: "Нових сьогодні", ru: "Новых сегодня", en: "New today", pl: "Nowych dzisiaj" },
+
+  // ---- captcha (anti-bot check before search / heavy DB actions) ----
+  captchaPrompt: {
+    ua: "🤖 <b>Перевірка, що ви не бот.</b>\nСкільки буде {a} + {b}? Оберіть правильну відповідь:",
+    ru: "🤖 <b>Проверка, что вы не бот.</b>\nСколько будет {a} + {b}? Выберите правильный ответ:",
+    en: "🤖 <b>Quick anti-bot check.</b>\nWhat is {a} + {b}? Pick the right answer:",
+    pl: "🤖 <b>Szybka weryfikacja anty-bot.</b>\nIle to {a} + {b}? Wybierz poprawną odpowiedź:",
+  },
+  captchaAttemptsLeft: {
+    ua: "Спроб залишилось: <b>{n}</b>",
+    ru: "Осталось попыток: <b>{n}</b>",
+    en: "Attempts left: <b>{n}</b>",
+    pl: "Pozostałe próby: <b>{n}</b>",
+  },
+  captchaWrongTryAgain: {
+    ua: "❌ Неправильно, спробуйте ще",
+    ru: "❌ Неправильно, попробуйте ещё",
+    en: "❌ Wrong, try again",
+    pl: "❌ Źle, spróbuj ponownie",
+  },
+  captchaNotForYou: {
+    ua: "⛔ Ця перевірка не для вас.",
+    ru: "⛔ Эта проверка не для вас.",
+    en: "⛔ This check isn't for you.",
+    pl: "⛔ Ta weryfikacja nie jest dla Ciebie.",
+  },
+  captchaExpired: {
+    ua: "⌛ Перевірка застаріла. Надішліть запит ще раз.",
+    ru: "⌛ Проверка устарела. Отправьте запрос ещё раз.",
+    en: "⌛ This check expired. Send your request again.",
+    pl: "⌛ Weryfikacja wygasła. Wyślij zapytanie ponownie.",
+  },
+  captchaOk: {
+    ua: "✅ <b>Перевірку пройдено!</b>\nТепер надішліть ваш запит ще раз (@username, ID тощо).",
+    ru: "✅ <b>Проверка пройдена!</b>\nТеперь отправьте ваш запрос ещё раз (@username, ID и т.д.).",
+    en: "✅ <b>Verified!</b>\nNow send your request again (@username, ID, etc.).",
+    pl: "✅ <b>Zweryfikowano!</b>\nTeraz wyślij swoje zapytanie ponownie (@username, ID itd.).",
+  },
+  captchaFail: {
+    ua: "❌ <b>Вичерпано всі спроби (3/3).</b>\nСпробуйте ще раз через {sec} сек.",
+    ru: "❌ <b>Исчерпаны все попытки (3/3).</b>\nПопробуйте ещё раз через {sec} сек.",
+    en: "❌ <b>Out of attempts (3/3).</b>\nTry again in {sec} sec.",
+    pl: "❌ <b>Wyczerpano wszystkie próby (3/3).</b>\nSpróbuj ponownie za {sec} sek.",
+  },
+  captchaCooldown: {
+    ua: "⏳ Забагато невдалих спроб. Зачекайте {sec} сек. і спробуйте знову.",
+    ru: "⏳ Слишком много неудачных попыток. Подождите {sec} сек. и попробуйте снова.",
+    en: "⏳ Too many failed attempts. Wait {sec} sec. and try again.",
+    pl: "⏳ Zbyt wiele nieudanych prób. Poczekaj {sec} sek. i spróbuj ponownie.",
+  },
+  // Shown ONLY in private chats when a user with a pending captcha sends
+  // anything else — in groups they're silently ignored (see message gate).
+  globalBusy: {
+    ua: "⚠️ Зараз забагато запитів. Спробуйте, будь ласка, через хвилину.",
+    ru: "⚠️ Сейчас слишком много запросов. Попробуйте, пожалуйста, через минуту.",
+    en: "⚠️ Too many requests right now. Please try again in a minute.",
+    pl: "⚠️ Zbyt wiele zapytań naraz. Spróbuj ponownie za minutę.",
+  },
 };
 
 function statusLabelLocalized(status: string, lang: SupportedLang): string {
@@ -905,6 +963,125 @@ function isSpamming(userId: number): { spam: boolean; timeLeft: number; reason?:
   fresh.push(now);
   userRequests.set(userId, fresh);
   return { spam: false, timeLeft: 0 };
+}
+
+// ===== Global circuit breaker =====
+// Protects the DB / function-seconds budget during a flood (many different
+// users/fake IDs at once, which per-user rate limiting can't catch). If the
+// whole bot gets more than GLOBAL_MAX requests in GLOBAL_WINDOW_SEC, further
+// heavy (DB-hitting) actions are politely declined until the window clears.
+const globalRequestTimestamps: number[] = [];
+const GLOBAL_MAX = 60;
+const GLOBAL_WINDOW_SEC = 10;
+
+function isGloballyBusy(): boolean {
+  const now = Date.now();
+  while (globalRequestTimestamps.length > 0 && now - globalRequestTimestamps[0] > GLOBAL_WINDOW_SEC * 1000) {
+    globalRequestTimestamps.shift();
+  }
+  globalRequestTimestamps.push(now);
+  return globalRequestTimestamps.length > GLOBAL_MAX;
+}
+
+// ===== Math captcha (anti-bot check) =====
+// Gates the bot behind a one-time "are you human" check per user. Fully
+// in-memory — cheap, no DB writes, and worst case on a cold start is that
+// a user solves it once more.
+//
+// - 3 attempts per captcha; after 3 wrong picks it's locked for COOLDOWN.
+// - While a captcha is pending, ALL other commands from that user are
+//   ignored (see the gate installed in setupBot) — no DB calls, no replies.
+// - If it was issued in a busy group chat and got buried, the user can DM
+//   the bot privately and it will resend the exact same pending captcha
+//   there, so they don't have to go dig through the group's history.
+type PendingCaptcha = {
+  a: number;
+  b: number;
+  expected: number;
+  options: number[];
+  attemptsLeft: number;
+  createdAt: number;
+};
+const verifiedUsers = new Map<number, number>(); // userId -> verifiedAt (ms)
+const pendingCaptcha = new Map<number, PendingCaptcha>();
+const captchaCooldownUntil = new Map<number, number>(); // userId -> ms timestamp
+const CAPTCHA_VALID_MS = 12 * 60 * 60 * 1000; // re-check every 12h
+const CAPTCHA_TTL_MS = 10 * 60 * 1000; // a shown captcha stays solvable for 10 min
+const CAPTCHA_ATTEMPTS = 3;
+const CAPTCHA_FAIL_COOLDOWN_MS = 60 * 1000; // wait 60s after burning all attempts
+
+function isCaptchaVerified(userId: number): boolean {
+  const ts = verifiedUsers.get(userId);
+  return !!ts && Date.now() - ts < CAPTCHA_VALID_MS;
+}
+
+// True while the user has an unsolved captcha out there — used by the
+// message gate to ignore everything else from them until they answer it.
+function hasPendingCaptcha(userId: number): boolean {
+  const p = pendingCaptcha.get(userId);
+  return !!p && Date.now() - p.createdAt < CAPTCHA_TTL_MS;
+}
+
+function buildCaptchaKeyboard(userId: number, options: number[]): InlineKeyboard {
+  const kb = new InlineKeyboard();
+  options.forEach((val, i) => {
+    kb.text(String(val), `cap_${userId}_${val}`);
+    if (i % 2 === 1) kb.row();
+  });
+  return kb;
+}
+
+function captchaPromptText(lang: SupportedLang, p: PendingCaptcha): string {
+  let text = xt.captchaPrompt[lang].replace("{a}", String(p.a)).replace("{b}", String(p.b));
+  if (p.attemptsLeft < CAPTCHA_ATTEMPTS) {
+    text += "\n\n" + xt.captchaAttemptsLeft[lang].replace("{n}", String(p.attemptsLeft));
+  }
+  return text;
+}
+
+// Shows (or re-shows) a math captcha to the user. Returns true if the
+// caller must stop processing (not verified yet), false if already
+// verified and free to proceed.
+async function ensureCaptcha(ctx: any, lang: SupportedLang, userId: number): Promise<boolean> {
+  if (isCaptchaVerified(userId)) return false;
+
+  const cooldownUntil = captchaCooldownUntil.get(userId);
+  if (cooldownUntil && Date.now() < cooldownUntil) {
+    const sec = Math.ceil((cooldownUntil - Date.now()) / 1000);
+    await ctx.reply(xt.captchaCooldown[lang].replace("{sec}", String(sec)), { parse_mode: "HTML" }).catch(() => {});
+    return true;
+  }
+
+  // Already has one out — resend the SAME captcha (same numbers, same
+  // remaining attempts) instead of generating a new one. This is what lets
+  // someone re-open it from a DM if the group version got buried.
+  const existing = pendingCaptcha.get(userId);
+  if (existing && Date.now() - existing.createdAt < CAPTCHA_TTL_MS) {
+    await ctx
+      .reply(captchaPromptText(lang, existing), { parse_mode: "HTML", reply_markup: buildCaptchaKeyboard(userId, existing.options) })
+      .catch(() => {});
+    return true;
+  }
+
+  const a = 1 + Math.floor(Math.random() * 8);
+  const b = 1 + Math.floor(Math.random() * 8);
+  const correct = a + b;
+
+  const options = new Set<number>([correct]);
+  while (options.size < 4) {
+    const delta = 1 + Math.floor(Math.random() * 4);
+    const candidate = Math.random() < 0.5 ? correct + delta : Math.max(0, correct - delta);
+    options.add(candidate);
+  }
+  const shuffled = Array.from(options).sort(() => Math.random() - 0.5);
+
+  const entry: PendingCaptcha = { a, b, expected: correct, options: shuffled, attemptsLeft: CAPTCHA_ATTEMPTS, createdAt: Date.now() };
+  pendingCaptcha.set(userId, entry);
+
+  await ctx
+    .reply(captchaPromptText(lang, entry), { parse_mode: "HTML", reply_markup: buildCaptchaKeyboard(userId, shuffled) })
+    .catch(() => {});
+  return true;
 }
 
 // ==================== SEARCH LOGIC ====================
@@ -1762,6 +1939,28 @@ function setupBot(bot: Bot) {
     return next();
   });
 
+  // ---- Captcha gate: runs before anything else touches the DB. While a
+  // user has an unsolved captcha pending, every other message from them is
+  // dropped here — no trackBotUser/trackBotGroup writes, no command logic,
+  // no reply built. This is the actual Vercel/DB saving: the invocation
+  // still happens (Telegram always calls the webhook once per update), but
+  // it now does effectively nothing instead of running full bot logic.
+  // In a PRIVATE chat we re-show the same pending captcha instead of just
+  // dropping the message, so a captcha that got buried by group chat
+  // activity can still be solved by DMing the bot directly. ----
+  bot.on("message", async (ctx, next) => {
+    const uid = ctx.from?.id;
+    if (uid && hasPendingCaptcha(uid)) {
+      if (ctx.chat?.type === "private") {
+        const lang = getUserLanguage(uid, ctx.from?.language_code);
+        await ensureCaptcha(ctx, lang, uid);
+      }
+      // group/supergroup: ignore completely, no reply sent
+      return;
+    }
+    return next();
+  });
+
   // ---- FIRST handler: tracks private users (for DM broadcast) and
   // intercepts any pending multi-step flow (admin actions, /addbot, proof
   // upload). Must be registered before all other message handlers below,
@@ -1791,6 +1990,54 @@ function setupBot(bot: Bot) {
       // deletes the state itself and confirms the cancellation.
     }
     return next();
+  });
+
+  // Anti-bot math captcha answer buttons: cap_{targetUserId}_{clickedValue}
+  bot.callbackQuery(/^cap_(\d+)_(-?\d+)$/, async (ctx) => {
+    const targetUid = parseInt(ctx.match[1], 10);
+    const clicked = parseInt(ctx.match[2], 10);
+    const lang = getUserLanguage(ctx.from?.id, ctx.from?.language_code);
+
+    if (ctx.from?.id !== targetUid) {
+      await ctx.answerCallbackQuery({ text: xt.captchaNotForYou[lang], show_alert: true }).catch(() => {});
+      return;
+    }
+
+    const pending = pendingCaptcha.get(targetUid);
+    if (!pending || Date.now() - pending.createdAt > CAPTCHA_TTL_MS) {
+      pendingCaptcha.delete(targetUid);
+      await ctx.answerCallbackQuery().catch(() => {});
+      await ctx.editMessageText(xt.captchaExpired[lang], { parse_mode: "HTML" }).catch(() => {});
+      return;
+    }
+
+    if (clicked === pending.expected) {
+      pendingCaptcha.delete(targetUid);
+      captchaCooldownUntil.delete(targetUid);
+      verifiedUsers.set(targetUid, Date.now());
+      await ctx.answerCallbackQuery().catch(() => {});
+      await ctx.editMessageText(xt.captchaOk[lang], { parse_mode: "HTML" }).catch(() => {});
+      return;
+    }
+
+    // Wrong pick — burn one attempt.
+    pending.attemptsLeft -= 1;
+    if (pending.attemptsLeft <= 0) {
+      pendingCaptcha.delete(targetUid);
+      captchaCooldownUntil.set(targetUid, Date.now() + CAPTCHA_FAIL_COOLDOWN_MS);
+      await ctx.answerCallbackQuery().catch(() => {});
+      await ctx
+        .editMessageText(xt.captchaFail[lang].replace("{sec}", String(Math.ceil(CAPTCHA_FAIL_COOLDOWN_MS / 1000))), { parse_mode: "HTML" })
+        .catch(() => {});
+      return;
+    }
+
+    // Still has attempts left — keep the same captcha up, just show the
+    // updated attempts count (same numbers/buttons, so no new message).
+    await ctx.answerCallbackQuery({ text: xt.captchaWrongTryAgain[lang] }).catch(() => {});
+    await ctx
+      .editMessageText(captchaPromptText(lang, pending), { parse_mode: "HTML", reply_markup: buildCaptchaKeyboard(targetUid, pending.options) })
+      .catch(() => {});
   });
 
   // Track groups the bot is added to / removed from (for broadcast + stats)
@@ -2597,6 +2844,12 @@ async function handleSearch(ctx: any, rawInput: string, forcedLang?: SupportedLa
   const userId = ctx.from?.id;
   const lang = forcedLang || getUserLanguage(userId, ctx.from?.language_code);
 
+  // anti-bot captcha (once per ~12h per user) — gates the expensive path below
+  if (userId) {
+    const shown = await ensureCaptcha(ctx, lang, userId);
+    if (shown) return;
+  }
+
   // spam check
   if (userId) {
     const { spam, timeLeft } = isSpamming(userId);
@@ -2605,6 +2858,12 @@ async function handleSearch(ctx: any, rawInput: string, forcedLang?: SupportedLa
       await ctx.reply(msg, { parse_mode: "HTML" });
       return;
     }
+  }
+
+  // global circuit breaker — protects DB/function-seconds during a flood
+  if (isGloballyBusy()) {
+    await ctx.reply(xt.globalBusy[lang], { parse_mode: "HTML" }).catch(() => {});
+    return;
   }
 
   const parsed = parseInput(rawInput);
@@ -2981,7 +3240,24 @@ function getWebhookHandler() {
   return webhookHandler;
 }
 
+// ==================== WEBHOOK SECRET CHECK ====================
+// Telegram signs every real webhook call with this header when you set it
+// via setWebhook({ secret_token }). Checking it here — BEFORE the bot/DB
+// code even runs — rejects any request that isn't actually from Telegram
+// (someone hitting this public URL directly with junk POSTs) for free,
+// with zero DB calls and almost zero function time.
+// If TELEGRAM_WEBHOOK_SECRET isn't set, this check is skipped (so it can't
+// break an existing deployment) — see setup notes for how to enable it.
+const WEBHOOK_SECRET = process.env.TELEGRAM_WEBHOOK_SECRET || "";
+
 export async function POST(req: NextRequest) {
+  if (WEBHOOK_SECRET) {
+    const headerSecret = req.headers.get("x-telegram-bot-api-secret-token");
+    if (headerSecret !== WEBHOOK_SECRET) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 401 });
+    }
+  }
+
   const handler = getWebhookHandler();
   if (!handler) {
     // Token not set — don't crash build, just return 503
