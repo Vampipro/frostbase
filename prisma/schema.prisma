@@ -213,3 +213,67 @@ model ExpGrant {
   @@index([userId])
   @@index([actionType])
 }
+
+// ==========================================
+// Telegram bot tables (managed outside main app, kept in sync here)
+// ==========================================
+
+model BotAdmin {
+  telegramId BigInt   @id
+  addedBy    BigInt?
+  addedAt    DateTime @default(now())
+}
+
+model ChatSettings {
+  chatId      BigInt   @id
+  adsDisabled Boolean  @default(false)
+  updatedAt   DateTime @default(now())
+}
+
+model BotUser {
+  chatId         BigInt   @id
+  telegramUserId BigInt?
+  username       String?
+  languageCode   String?
+  updatedAt      DateTime @default(now())
+}
+
+model BotGroup {
+  chatId    BigInt   @id
+  title     String?
+  type      String?
+  active    Boolean  @default(true)
+  addedAt   DateTime @default(now())
+  updatedAt DateTime @default(now())
+}
+
+model BotRequest {
+  id             String   @id
+  telegramUserId BigInt
+  username       String?
+  botUsername    String
+  subscribers    Int?
+  reward         String?
+  status         String   @default("pending") // "pending", "approved", "rejected", etc.
+  likes          Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @default(now())
+}
+
+model BotRequestProof {
+  id          String   @id
+  requestId   String
+  userId      BigInt
+  step1FileId String?
+  withdrew    Boolean?
+  step2FileId String?
+  createdAt   DateTime @default(now())
+}
+
+model BotRequestVote {
+  requestId String
+  userId    BigInt
+  createdAt DateTime @default(now())
+
+  @@id([requestId, userId])
+}
