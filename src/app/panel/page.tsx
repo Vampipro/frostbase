@@ -3705,27 +3705,3 @@ export default function PanelPage() {
     </div>
   )
 }
-                       <Eye className="w-3 h-3" />
-                      </button>
-                    </div>
-                  ))
-                )}
-              </div>
-
-              {/* Pagination */}
-              {!hiddenTagsLoading && hiddenTagsTotal > 20 && (
-                <div className="mt-4 pt-3 border-t border-yellow-500/10">
-                  <Pagination
-                    current={hiddenTagsPage}
-                    total={Math.ceil(hiddenTagsTotal / 20)}
-                    onPageChange={(p) => loadHiddenTags(p, hiddenTagsSearch)}
-                  />
-                </div>
-              )}
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  )
-}
