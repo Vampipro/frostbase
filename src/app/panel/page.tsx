@@ -1333,9 +1333,9 @@ export default function PanelPage() {
 
   const handleSponsorSave = async () => {
     if (!sponsorEditUser) return
-    const donated = parseInt(sponsorDonated)
-    if (isNaN(donated) || donated < 0 || !Number.isInteger(donated)) {
-      toast.error('Сумма должна быть целым числом >= 0')
+    const donated = parseFloat(sponsorDonated.replace(',', '.'))
+    if (isNaN(donated) || donated < 0) {
+      toast.error('Сумма должна быть числом >= 0')
       return
     }
     try {
@@ -1357,9 +1357,9 @@ export default function PanelPage() {
   const handleSponsorCreate = async () => {
     const name = sponsorNewName.trim()
     if (!name) { toast.error('Введи имя'); return }
-    const donated = sponsorNewDonated === '' ? 0 : parseInt(sponsorNewDonated)
-    if (isNaN(donated) || donated < 0 || !Number.isInteger(donated)) {
-      toast.error('Сумма должна быть целым числом >= 0')
+    const donated = sponsorNewDonated === '' ? 0 : parseFloat(sponsorNewDonated.replace(',', '.'))
+    if (isNaN(donated) || donated < 0) {
+      toast.error('Сумма должна быть числом >= 0')
       return
     }
     setSponsorCreating(true)
@@ -3034,7 +3034,7 @@ export default function PanelPage() {
                           </div>
                           <div>
                             <label className="text-[11px] text-yellow-600 font-mono mb-1 block">Сумма доната</label>
-                            <Input type="number" min="0" placeholder="0" value={sponsorNewDonated} onChange={e => setSponsorNewDonated(e.target.value.replace(/[^0-9]/g, ''))} className="h-10 rounded-lg bg-yellow-500/5 border-yellow-500/20 text-yellow-200 font-mono" />
+                            <Input type="number" min="0" step="0.01" placeholder="0.00" value={sponsorNewDonated} onChange={e => setSponsorNewDonated(e.target.value.replace(',', '.').replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1'))} className="h-10 rounded-lg bg-yellow-500/5 border-yellow-500/20 text-yellow-200 font-mono" />
                           </div>
                           <div className="sm:col-span-2">
                             <label className="text-[11px] text-yellow-600 font-mono mb-1 block">Аватар (ссылка, необязательно)</label>
@@ -3110,8 +3110,8 @@ export default function PanelPage() {
                         <div className="space-y-3">
                           <div>
                             <label className="text-[11px] text-yellow-600 font-mono mb-1 block">Сумма доната (всего)</label>
-                            <Input type="number" min="0" placeholder="0" value={sponsorDonated} onChange={e => setSponsorDonated(e.target.value.replace(/[^0-9]/g, ''))} className="h-10 rounded-lg bg-yellow-500/5 border-yellow-500/20 text-yellow-200 font-mono" />
-                            <p className="text-[10px] text-yellow-600/60 font-mono mt-1">Целое число, 0 = убрать донат но оставить Sponsor если чекнут</p>
+                            <Input type="number" min="0" step="0.01" placeholder="0.00" value={sponsorDonated} onChange={e => setSponsorDonated(e.target.value.replace(',', '.').replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1'))} className="h-10 rounded-lg bg-yellow-500/5 border-yellow-500/20 text-yellow-200 font-mono" />
+                            <p className="text-[10px] text-yellow-600/60 font-mono mt-1">Можно с копейками (напр. 10.50), 0 = убрать донат но оставить Sponsor если чекнут</p>
                           </div>
                           <div className="flex items-center gap-2">
                             <input type="checkbox" checked={sponsorIsSponsor} onChange={e => setSponsorIsSponsor(e.target.checked)} className="w-4 h-4 rounded border-yellow-500/20" />
