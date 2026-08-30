@@ -1416,7 +1416,7 @@ function Top10View() {
                         )}
                       </div>
                       <p className="text-[11px] text-muted-foreground mt-0.5">
-                        {u.approvedSubmissions} принятых заявок {u.donated > 0 ? `• 💰 ${u.donated.toLocaleString('ru-RU')}` : ''}
+                        {u.approvedSubmissions} принятых заявок {u.donated > 0 ? `• 💰 ${u.donated.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : ''}
                       </p>
                     </div>
 
@@ -1511,7 +1511,7 @@ function Top10View() {
                       <span className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-gradient-to-r from-yellow-500/20 to-amber-500/20 border border-yellow-500/30">
                         <span className="text-sm">💰</span>
                         <span className="text-sm font-bold text-yellow-300">
-                          {(u.donated || 0).toLocaleString('ru-RU')}
+                          {(u.donated || 0).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </span>
                       </span>
                     </div>
