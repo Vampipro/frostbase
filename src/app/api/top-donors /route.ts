@@ -69,6 +69,6 @@ export async function GET() {
     return NextResponse.json({ results })
   } catch (error) {
     console.error('Top donors error:', error)
-    return NextResponse.json({ results: [] })
+    return NextResponse.json({ results: [], error: 'Ошибка', debug: String(error) }, { status: 500 })
   }
 }
