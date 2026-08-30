@@ -16,7 +16,7 @@ model User {
   exp        Int      @default(0)
   banReason  String   @default("")
   isSponsor     Boolean  @default(false)
-  donated       Int      @default(0)
+  donated       VARCHAR
   isPlaceholder Boolean  @default(false) // донатер без реального аккаунта
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
@@ -236,6 +236,7 @@ model BotUser {
   username       String?
   languageCode   String?
   updatedAt      DateTime @default(now())
+  createdAt      DateTime? @default(now())
 }
 
 model BotGroup {
