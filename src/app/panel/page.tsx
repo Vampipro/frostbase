@@ -1345,7 +1345,7 @@ export default function PanelPage() {
         body: JSON.stringify({ userId: sponsorEditUser.id, isSponsor: sponsorIsSponsor, donated }),
       })
       const data = await res.json()
-      if (!res.ok) { toast.error(data.error); return }
+      if (!res.ok) { toast.error(data.debug || data.error); return }
       toast.success('Спонсор обновлен')
       setSponsorEditUser(null)
       setSponsorDonated('')
@@ -1375,7 +1375,7 @@ export default function PanelPage() {
         }),
       })
       const data = await res.json()
-      if (!res.ok) { toast.error(data.error); return }
+      if (!res.ok) { toast.error(data.debug || data.error); return }
       toast.success('Донатер добавлен без аккаунта')
       setSponsorNewName('')
       setSponsorNewDonated('')
