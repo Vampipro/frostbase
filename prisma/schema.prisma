@@ -16,7 +16,7 @@ model User {
   exp        Int      @default(0)
   banReason  String   @default("")
   isSponsor     Boolean  @default(false)
-  donated       String
+  donated Decimal @default(0) @db.Decimal(12, 2)
   isPlaceholder Boolean  @default(false) // донатер без реального аккаунта
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
