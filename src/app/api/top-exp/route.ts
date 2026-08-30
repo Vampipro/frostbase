@@ -50,6 +50,6 @@ export async function GET() {
     return NextResponse.json({ results })
   } catch (error) {
     console.error('Top EXP error:', error)
-    return NextResponse.json({ error: 'Ошибка' }, { status: 500 })
+    return NextResponse.json({ error: 'Ошибка', debug: String(error) }, { status: 500 })
   }
 }
