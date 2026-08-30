@@ -86,10 +86,10 @@ export async function POST(req: NextRequest) {
     }
     if (donated !== undefined) {
       const num = Number(donated)
-      if (!Number.isFinite(num) || num < 0 || !Number.isInteger(num)) {
-        return NextResponse.json({ error: 'donated должен быть целым числом >= 0' }, { status: 400 })
+      if (!Number.isFinite(num) || num < 0) {
+        return NextResponse.json({ error: 'donated должен быть числом >= 0' }, { status: 400 })
       }
-      updateData.donated = num
+      updateData.donated = Math.round(num * 100) / 100
       // Если сумма >0 — автоматом делаем спонсором, если не указано явно
       if (num > 0 && typeof isSponsor !== 'boolean') {
         updateData.isSponsor = true
@@ -127,9 +127,10 @@ export async function PUT(req: NextRequest) {
     }
 
     const num = donated === undefined || donated === '' ? 0 : Number(donated)
-    if (!Number.isFinite(num) || num < 0 || !Number.isInteger(num)) {
-      return NextResponse.json({ error: 'donated должен быть целым числом >= 0' }, { status: 400 })
+    if (!Number.isFinite(num) || num < 0) {
+      return NextResponse.json({ error: 'donated должен быть числом >= 0' }, { status: 400 })
     }
+    const roundedNum = Math.round(num * 100) / 100
 
     const existing = await db.user.findUnique({ where: { username: name } })
     if (existing) {
@@ -140,7 +141,7 @@ export async function PUT(req: NextRequest) {
     }
 
     const hashed = await bcrypt.hash(crypto.randomBytes(32).toString('hex'), 12)
-    const wantSponsor = typeof isSponsor === 'boolean' ? isSponsor : num > 0
+    const wantSponsor = typeof isSponsor === 'boolean' ? isSponsor : roundedNum > 0
 
     const user = await db.user.create({
       data: {
@@ -149,7 +150,7 @@ export async function PUT(req: NextRequest) {
         role: 'user',
         image: typeof image === 'string' ? image.trim() : '',
         isSponsor: wantSponsor,
-        donated: num,
+        donated: roundedNum,
         isPlaceholder: true,
       },
       select: {
