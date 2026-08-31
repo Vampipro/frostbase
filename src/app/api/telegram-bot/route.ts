@@ -1446,13 +1446,13 @@ async function sendAdminRequestDetail(ctx: any, id: string) {
     text += `📅 Створено: ${new Date(r.createdAt).toLocaleString("uk-UA")}\n`;
 
     const kb = new InlineKeyboard()
-      .text("⏳ Очікується", `admreq_status_${id}_pending`)
-      .text("👀 Розглянуто", `admreq_status_${id}_in_review`)
+      .text("⏳ Очікується", `admreq_status_${id}_p`)
+      .text("👀 Розглянуто", `admreq_status_${id}_ir`)
       .row()
-      .text("🔍 Провіряється", `admreq_status_${id}_checking`)
-      .text("💸 Очікується вивід", `admreq_status_${id}_awaiting_withdrawal`)
+      .text("🔍 Провіряється", `admreq_status_${id}_ck`)
+      .text("💸 Очікується вивід", `admreq_status_${id}_aw`)
       .row()
-      .text("✅ Провірено", `admreq_status_${id}_verified`)
+      .text("✅ Провірено", `admreq_status_${id}_v`)
       .row()
       .text("🧾 Пруфи по заявці", `admin_proofs_req_${id}`)
       .row()
@@ -1548,7 +1548,7 @@ async function sendAdminProofDetail(ctx: any, proofId: string) {
     caption += `📅 ${new Date(p.createdAt).toLocaleString("uk-UA")}`;
 
     const kb = new InlineKeyboard()
-      .text("✅ Відмітити перевіреним", `admproof_done_${p.id}_${p.requestId}`)
+      .text("✅ Відмітити перевіреним", `admproof_done_${p.id}`)
       .row()
       .text("⬅️ Назад до списку", "admin_proofs_1");
 
@@ -2201,13 +2201,20 @@ function setupBot(bot: Bot) {
     await sendAdminRequestDetail(ctx, ctx.match[1]);
   });
 
-  bot.callbackQuery(/^admreq_status_(.+)_(pending|in_review|checking|awaiting_withdrawal|verified)$/, async (ctx) => {
+  const ADMREQ_STATUS_CODES: Record<string, string> = {
+    p: "pending",
+    ir: "in_review",
+    ck: "checking",
+    aw: "awaiting_withdrawal",
+    v: "verified",
+  };
+  bot.callbackQuery(/^admreq_status_(.+)_(p|ir|ck|aw|v)$/, async (ctx) => {
     if (!(await isAdmin(ctx.from?.id))) {
       await ctx.answerCallbackQuery();
       return;
     }
     const id = ctx.match[1];
-    const status = ctx.match[2];
+    const status = ADMREQ_STATUS_CODES[ctx.match[2]];
     try {
       await ensureTables();
       await db.$executeRawUnsafe(`UPDATE "BotRequest" SET status = $1, "updatedAt" = NOW() WHERE id = $2`, status, id);
@@ -2284,7 +2291,7 @@ function setupBot(bot: Bot) {
     await sendAdminProofDetail(ctx, ctx.match[1]);
   });
 
-  bot.callbackQuery(/^admproof_done_(.+)_(.+)$/, async (ctx) => {
+  bot.callbackQuery(/^admproof_done_(.+)$/, async (ctx) => {
     if (!(await isAdmin(ctx.from?.id))) {
       await ctx.answerCallbackQuery();
       return;
