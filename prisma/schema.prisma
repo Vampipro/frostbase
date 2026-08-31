@@ -237,6 +237,7 @@ model BotUser {
   languageCode   String?
   updatedAt      DateTime @default(now())
   createdAt      DateTime? @default(now())
+  botLang        String?
 }
 
 model BotGroup {
@@ -269,6 +270,7 @@ model BotRequestProof {
   withdrew    Boolean?
   step2FileId String?
   createdAt   DateTime @default(now())
+  reviewed Boolean @default(false)
 }
 
 model BotRequestVote {
