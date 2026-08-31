@@ -2,26 +2,10 @@ import { Bot, InlineKeyboard, webhookCallback } from "grammy";
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 
-// ==================== LAZY BOT INIT (FIX BUILD CRASH) + OBFUSCATED TOKEN ====================
-// Токен захардкожен в base64 чтобы сканеры не палили (env имеет приоритет)
-// Декодируется только в рантайме
-const _x0 = "ODgzMDkzOTgzNzpBQUVYVFN4VndjZHR6VEpRVkFmUFF6Y3gzZEdXVUV0RVdpNA==";
-function _d(s: string): string {
-  try {
-    // Node.js
-    return Buffer.from(s, "base64").toString("utf-8");
-  } catch {
-    try {
-      // Edge / browser fallback
-      // @ts-ignore
-      return typeof atob !== "undefined" ? atob(s) : "";
-    } catch {
-      return "";
-    }
-  }
-}
-// Приоритет: ENV > hardcoded base64 (для скрытия от сканеров)
-const token = process.env.TELEGRAM_BOT_TOKEN || _d(_x0);
+// ==================== LAZY BOT INIT (FIX BUILD CRASH) ====================
+// Токен береться ЛИШЕ зі змінної середовища Vercel (Project Settings → Environment Variables → TELEGRAM_BOT_TOKEN).
+// У файлі/репозиторії токена немає — його не видно на GitHub і його не потрібно комітити.
+const token = process.env.TELEGRAM_BOT_TOKEN || "";
 let botInstance: Bot | null = null;
 let botSetupDone = false;
 
