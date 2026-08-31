@@ -51,6 +51,28 @@ function genId(): string {
   return "id_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
 }
 
+// Telegram rejects callback_data longer than 64 bytes with BUTTON_DATA_INVALID.
+// This checks every button in a keyboard before we send it and logs the exact
+// offending value, so a future occurrence is instantly diagnosable in logs
+// instead of showing up only as a generic "Помилка." to the admin.
+function logOversizedButtons(kb: any, context: string): void {
+  try {
+    const rows = kb?.inline_keyboard || [];
+    for (const row of rows) {
+      for (const btn of row) {
+        if (btn?.callback_data) {
+          const bytes = Buffer.byteLength(btn.callback_data, "utf8");
+          if (bytes > 64) {
+            console.error(`[callback_data too long: ${bytes} bytes] context=${context} data="${btn.callback_data}"`);
+          }
+        }
+      }
+    }
+  } catch (e) {
+    console.error("logOversizedButtons check failed", e);
+  }
+}
+
 // ==================== TRANSLATIONS ====================
 const t: Record<SupportedLang, Record<string, string>> = {
   ua: {
@@ -1460,10 +1482,22 @@ async function sendAdminRequestDetail(ctx: any, id: string) {
       .row()
       .text("⬅️ Назад до списку", "admin_requests_1");
 
+    logOversizedButtons(kb, "sendAdminRequestDetail");
+
     try {
       await ctx.editMessageText(text, { parse_mode: "HTML", reply_markup: kb });
-    } catch {
-      await ctx.reply(text, { parse_mode: "HTML", reply_markup: kb });
+    } catch (e1) {
+      try {
+        await ctx.reply(text, { parse_mode: "HTML", reply_markup: kb });
+      } catch (e2: any) {
+        // Last-resort fallback: if Telegram is rejecting the keyboard itself
+        // (e.g. BUTTON_DATA_INVALID), still show the admin the bot's info
+        // instead of a bare "Помилка." with no context.
+        console.error("admin request detail: send with keyboard failed, retrying without keyboard", e2?.description || e2);
+        await ctx.reply(text, { parse_mode: "HTML" }).catch((e3: any) => {
+          console.error("admin request detail: fallback send also failed", e3?.description || e3);
+        });
+      }
     }
   } catch (e) {
     console.error("admin request detail error", e);
