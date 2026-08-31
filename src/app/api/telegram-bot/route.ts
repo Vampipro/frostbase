@@ -1460,7 +1460,7 @@ async function sendAdminRequestDetail(ctx: any, id: string) {
 
     let text = `🤖 <b>@${escapeHtml(r.botUsername)}</b>\n\n`;
     text += `👤 Автор заявки: <code>${r.telegramUserId}</code>${r.username ? " (@" + escapeHtml(r.username) + ")" : ""}\n`;
-    text += `👥 Підписників: <b>${r.subscribers ?? "—"}</b>\n`;
+    text += `👥 Спонсорів: <b>${r.subscribers ?? "—"}</b>\n`;
     text += `🎁 Нагорода: <b>${escapeHtml(r.reward || "—")}</b>\n`;
     text += `📊 Статус: <b>${statusLabelUa(r.status)}</b>\n`;
     text += `👍 Лайків: <b>${r.likes}</b>\n`;
