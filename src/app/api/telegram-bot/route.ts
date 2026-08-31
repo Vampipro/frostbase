@@ -367,10 +367,10 @@ const xt: Record<string, Record<SupportedLang, string>> = {
     pl: "ℹ️ Ten bot jest już na liście do sprawdzenia. Możesz na niego zagłosować w /botrating",
   },
   askSubscribers: {
-    ua: "👥 Скільки приблизно підписників / учасників у бота (число)?",
-    ru: "👥 Сколько примерно подписчиков / участников у бота (число)?",
-    en: "👥 Roughly how many subscribers / members does the bot have (number)?",
-    pl: "👥 Ile mniej więcej subskrybentów / uczestników ma bot (liczba)?",
+    ua: "👥 Скільки приблизно спонсорів у бота (число, якщо немає — напишіть 0)?",
+    ru: "👥 Сколько примерно спонсоров у бота (число, если нет — напишите 0)?",
+    en: "👥 Roughly how many sponsors does the bot have (number, write 0 if none)?",
+    pl: "👥 Ile mniej więcej sponsorów ma bot (liczba, jeśli brak — napisz 0)?",
   },
   invalidNumber: {
     ua: "⚠️ Надішліть число, будь ласка.",
@@ -408,7 +408,7 @@ const xt: Record<string, Record<SupportedLang, string>> = {
     en: "📭 No submissions yet. Add a bot via /addbot",
     pl: "📭 Nie ma jeszcze żadnych zgłoszeń. Dodaj bota przez /addbot",
   },
-  subsLabel: { ua: "підп.", ru: "подп.", en: "subs", pl: "subs" },
+  subsLabel: { ua: "спонс.", ru: "спонс.", en: "sponsors", pl: "sponsorów" },
   rewardLabel: { ua: "Нагорода", ru: "Награда", en: "Reward", pl: "Nagroda" },
   statusFieldLabel: { ua: "Статус", ru: "Статус", en: "Status", pl: "Status" },
   likesLabel: { ua: "Лайків", ru: "Лайков", en: "Likes", pl: "Polubienia" },
@@ -1421,7 +1421,14 @@ async function sendAdminRequestDetail(ctx: any, id: string) {
     const rows = (await db.$queryRawUnsafe(`SELECT * FROM "BotRequest" WHERE id = $1`, id)) as any[];
     const r = rows[0];
     if (!r) {
-      await ctx.reply("❌ Заявку не знайдено.");
+      // Diagnostic log: shows the exact id that was searched for and how
+      // many total requests currently exist, so a repeat of this bug can
+      // be traced in the Vercel function logs (stale button vs real bug).
+      try {
+        const cnt = (await db.$queryRawUnsafe(`SELECT COUNT(*)::int as count FROM "BotRequest"`)) as any[];
+        console.error("admreq_view: record not found", { searchedId: id, totalRequests: cnt[0]?.count });
+      } catch {}
+      await ctx.reply("❌ Заявку не знайдено. Можливо, її вже видалили — оновіть список через /admin.");
       return;
     }
     const proofRows = (await db.$queryRawUnsafe(
