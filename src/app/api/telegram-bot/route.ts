@@ -1950,6 +1950,17 @@ function setupBot(bot: Bot) {
   if (botSetupDone) return;
   botSetupDone = true;
 
+  // Without this, an uncaught error thrown inside ANY handler below (a
+  // missed .catch(), a DB call that rejects, etc.) propagates out of grammy
+  // as an unhandled BotError instead of being logged cleanly here — and,
+  // depending on the webhook adapter, can prevent a response from ever
+  // being sent back to Telegram for that update.
+  bot.catch((err) => {
+    console.error("Unhandled bot error", err.error, {
+      updateId: err.ctx?.update?.update_id,
+    });
+  });
+
   // Register the "/" command menu (fire-and-forget, don't block setup).
   registerBotCommands(bot).catch((e) => console.error("registerBotCommands error", e));
 
@@ -2734,6 +2745,19 @@ function setupBot(bot: Bot) {
     }
   });
 
+  // "🌐 Language / Мова" quick-access button (used on the scammer card etc.)
+  // — opens the language picker instead of silently forcing Ukrainian.
+  bot.callbackQuery("lang_menu", async (ctx) => {
+    const keyboard = new InlineKeyboard()
+      .text("🇺🇦 Українська", "lang_ua")
+      .text("🇷🇺 Русский", "lang_ru")
+      .row()
+      .text("🇬🇧 English", "lang_en")
+      .text("🇵🇱 Polski", "lang_pl");
+    await ctx.answerCallbackQuery();
+    await ctx.reply(t.ua.chooseLang, { parse_mode: "HTML", reply_markup: keyboard });
+  });
+
   // Language callback
   bot.callbackQuery(/^lang_(ua|ru|en|pl)$/, async (ctx) => {
     const lang = ctx.match[1] as SupportedLang;
@@ -3060,7 +3084,7 @@ async function sendScammerCard(ctx: any, scammer: any, lang: SupportedLang) {
   const finalKb = adsDisabled
     ? new InlineKeyboard()
         .url(t[lang].btnSupport, "https://t.me/send?start=IVkrkNlUFFtA")
-        .text("🌐 Language / Мова", "lang_ua")
+        .text("🌐 Language / Мова", "lang_menu")
     : new InlineKeyboard()
         .url(t[lang].btnOpenSite, `https://frostscambase.vercel.app/?q=${encodeURIComponent(scammer.name)}`)
         .row()
@@ -3068,7 +3092,7 @@ async function sendScammerCard(ctx: any, scammer: any, lang: SupportedLang) {
         .url(t[lang].btnChat, "https://t.me/wocmf")
         .row()
         .url(t[lang].btnSupport, "https://t.me/send?start=IVkrkNlUFFtA")
-        .text("🌐 Language / Мова", "lang_ua");
+        .text("🌐 Language / Мова", "lang_menu");
 
   // If proof is image, send photo
   const isImage = scammer.proofLink && /\.(jpe?g|png|webp|gif|bmp|avif)(\?.*)?$/i.test(scammer.proofLink);
@@ -3268,7 +3292,7 @@ function getWebhookHandler() {
   if (webhookHandler) return webhookHandler;
   const bot = getBot();
   if (!bot) return null;
-  webhookHandler = webhookCallback(bot, "std/http", { onNotHandled: "return" });
+  webhookHandler = webhookCallback(bot, "std/http", { onTimeout: "return", timeoutMilliseconds: 9_000 });
   return webhookHandler;
 }
 
